@@ -1,0 +1,29 @@
+{
+	"schemaVersion": 1,
+	"id": "caustica",
+	"version": "${version}",
+	"name": "Caustica",
+	"description": "Hardware-ray-traced renderer with DLSS Ray Reconstruction for the Minecraft Vulkan backend.",
+	"authors": [
+		"i"
+	],
+	"license": "LGPL-3.0-or-later",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"dev.comfyfluffy.caustica.CausticaMod"
+		],
+		"client": [
+			"dev.comfyfluffy.caustica.client.CausticaClient"
+		]
+	},
+	"mixins": [
+		"caustica.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

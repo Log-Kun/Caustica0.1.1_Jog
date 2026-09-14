@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Traçado de raios",
+
+	"caustica.options.rt.exposureMode": "Exposição",
+	"caustica.options.rt.exposureMode.tooltip": "Como a imagem com traçado de raios é mapeada para o brilho da tela. Automático se adapta à luminância da cena; Manual usa diretamente o valor de exposição.",
+	"caustica.options.rt.exposureMode.auto": "Automático",
+	"caustica.options.rt.exposureMode.manual": "Manual",
+
+	"caustica.options.rt.manualEv": "Exposição EV",
+	"caustica.options.rt.manualEv.tooltip": "Compensação de exposição em pontos. No Manual, esta é a exposição fixa. No Automático, ela desloca a exposição automática para mais clara ou mais escura.",
+
+	"caustica.options.rt.spp": "Amostras por pixel",
+	"caustica.options.rt.spp.tooltip": "Amostras de path tracing tomadas por pixel em cada quadro. Valores maiores são mais limpos, mas exigem mais desempenho.",
+
+	"caustica.options.rt.maxBounces": "Rebatimentos de caminho",
+	"caustica.options.rt.maxBounces.tooltip": "Número máximo de rebatimentos secundários de path tracing após o primeiro acerto. Valores maiores capturam mais luz indireta, mas custam mais.",
+
+	"caustica.options.rt.sunSize": "Tamanho do sol",
+	"caustica.options.rt.sunSize.tooltip": "Raio angular do disco do sol e da lua. Discos maiores projetam penumbras mais suaves.",
+
+	"caustica.options.rt.entities": "Entidades com traçado de raios",
+	"caustica.options.rt.entities.tooltip": "Inclui entidades e entidades de bloco na cena com traçado de raios.",
+
+	"caustica.options.rt.particles": "Partículas com traçado de raios",
+	"caustica.options.rt.particles.tooltip": "Desenha partículas como billboards de raio da câmera dentro da cena traçada.",
+
+	"caustica.options.rt.glow": "Contorno brilhante de entidades",
+	"caustica.options.rt.glow.tooltip": "Desenha o contorno vanilla do efeito Brilhante (através de paredes) ao redor de entidades brilhantes.",
+
+	"caustica.options.rt.waterWaves": "Água animada",
+	"caustica.options.rt.waterWaves.tooltip": "Anima as normais da superfície da água para brilhos de ondas em movimento.",
+
+	"caustica.options.rt.hdr": "Saída HDR",
+	"caustica.options.rt.hdr.tooltip": "Apresenta em HDR (ST.2084/PQ) em vez de SDR quando a tela oferece suporte. Entra em vigor após reiniciar o jogo.",
+
+	"caustica.options.rt.hdrPaperWhite": "Branco de papel HDR",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Brilho absoluto (em nits) ao qual o brilho da cena equivalente a SDR é mapeado em uma tela HDR.",
+
+	"caustica.options.rt.hdrPeak": "Brilho máximo HDR",
+	"caustica.options.rt.hdrPeak.tooltip": "Brilho absoluto (em nits) para o qual os realces fazem roll-off. Defina para o brilho HDR máximo da sua tela.",
+
+	"caustica.options.rt.dlssQuality": "Qualidade DLSS",
+	"caustica.options.rt.dlssQuality.tooltip": "Modo de qualidade do DLSS Ray Reconstruction. Modos de menor qualidade renderizam menos pixels e fazem upscaling mais agressivo para obter taxas de quadros maiores; modos de maior qualidade renderizam mais pixels para uma imagem mais nítida. Só afeta a imagem quando o DLSS Ray Reconstruction está ativado.",
+	"caustica.options.rt.dlssQuality.3": "Ultra desempenho",
+	"caustica.options.rt.dlssQuality.0": "Desempenho",
+	"caustica.options.rt.dlssQuality.1": "Equilibrado",
+	"caustica.options.rt.dlssQuality.2": "Qualidade",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Visualização de depuração",
+	"caustica.options.rt.debugView.tooltip": "Visualiza um buffer intermediário do traçado de raios em vez da imagem final.",
+	"caustica.options.rt.debugView.0": "Desativado",
+	"caustica.options.rt.debugView.1": "Normais",
+	"caustica.options.rt.debugView.2": "Albedo",
+	"caustica.options.rt.debugView.3": "Profundidade",
+	"caustica.options.rt.debugView.4": "Rugosidade",
+	"caustica.options.rt.debugView.5": "Movimento",
+	"caustica.options.rt.debugView.6": "Especular",
+	"caustica.options.rt.debugView.7": "Movimento especular",
+	"caustica.options.rt.debugView.8": "Máscara de emissão",
+	"caustica.options.rt.debugView.9": "Fonte de emissão"
+}

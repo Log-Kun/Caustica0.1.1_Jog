@@ -1,0 +1,37 @@
+#version 460
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(binding = 0, set = 0, rgba16f) uniform writeonly image2D outputImage;
+layout(binding = 1, set = 0, rgba16f) uniform readonly image2D inputImage;
+layout(binding = 2, set = 0, rgba16f) uniform readonly image2D bloom2Image;
+layout(binding = 3, set = 0, rgba16f) uniform readonly image2D bloom3Image;
+layout(binding = 4, set = 0, rgba16f) uniform readonly image2D bloom4Image;
+layout(binding = 5, set = 0, rgba16f) uniform readonly image2D bloom5Image;
+
+#define BILINEAR(IMG) \
+    mix(mix(imageLoad(IMG, p00).rgb, imageLoad(IMG, p10).rgb, f.x), \
+        mix(imageLoad(IMG, p01).rgb, imageLoad(IMG, p11).rgb, f.x), f.y)
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outputImage);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+    ivec2 bloomSize = imageSize(bloom2Image);
+    vec2 bloomPos = uv * vec2(bloomSize) - 0.5;
+    ivec2 p00 = clamp(ivec2(floor(bloomPos)), ivec2(0), bloomSize - 1);
+    ivec2 p10 = clamp(p00 + ivec2(1, 0), ivec2(0), bloomSize - 1);
+    ivec2 p01 = clamp(p00 + ivec2(0, 1), ivec2(0), bloomSize - 1);
+    ivec2 p11 = clamp(p00 + ivec2(1, 1), ivec2(0), bloomSize - 1);
+    vec2 f = fract(bloomPos);
+
+    vec4 source = imageLoad(inputImage, pixel);
+    vec3 bloom = vec3(0.0);
+    bloom += BILINEAR(bloom2Image) * 0.18;
+    bloom += BILINEAR(bloom3Image) * 0.24;
+    bloom += BILINEAR(bloom4Image) * 0.28;
+    bloom += BILINEAR(bloom5Image) * 0.30;
+
+    imageStore(outputImage, pixel, vec4(source.rgb + bloom*0.3, source.a));
+}

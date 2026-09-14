@@ -1,0 +1,385 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+import dev.comfyfluffy.caustica.build.GenerateShaderRecords
+
+plugins {
+	id "fabric-loom" version "${loom_version}"
+	id "maven-publish"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	maven {
+		name = "Fabric"
+		url = "https://maven.fabricmc.net/"
+	}
+	mavenCentral()
+}
+
+loom {
+	runs {
+		client {
+			client()
+			setConfigName("Fabric Client")
+			ideConfigGenerated = true
+			runDir = "run"
+			// java.lang.foreign restricted methods (FFM bindings to amd_fidelityfx_vk.dll)
+			vmArg "--enable-native-access=ALL-UNNAMED"
+
+            // NVIDIA NGX (DLSS) allocates ~1MB on the stack during init, which overflows Java's default 1MB thread stack.
+            // pass -Xss here directly so the main render thread is resized before the VM parses JAVA_TOOL_OPTIONS.
+            vmArg "-Xss16m"
+
+            // NixOS fix: Gradle forks drop the dev-shell's LD_LIBRARY_PATH.
+            // We manually add the driver path so NGX can successfully dlopen libnvidia-ngx.so.1.
+            if (file("/run/opengl-driver/lib").exists()) {
+                def inherited = System.getenv("LD_LIBRARY_PATH")
+                environmentVariable "LD_LIBRARY_PATH",
+                        inherited ? "/run/opengl-driver/lib:${inherited}" : "/run/opengl-driver/lib"
+            }
+		}
+
+		server {
+			server()
+			setConfigName("Fabric Server")
+			ideConfigGenerated = true
+			runDir = "run"
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	testImplementation platform("org.junit:junit-bom:5.12.2")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+
+	// Layered TOML config (config/caustica.toml) — NightConfig, the same library NeoForge's
+	// ModConfigSpec is built on.
+	include implementation("com.electronwill.night-config:core:3.8.3")
+	include implementation("com.electronwill.night-config:toml:3.8.3")
+}
+
+processResources {
+	inputs.property "version", project.version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": inputs.properties.version
+	}
+}
+
+// Compile GLSL and Slang sources to SPIR-V at build time instead of tracking binaries. Requires
+// glslangValidator, slangc, and spirv-val from the Vulkan SDK or PATH.
+def shaderGenRoot = layout.buildDirectory.dir("generated/shaders") // classpath root -> /caustica/rt/*.spv
+
+def resolveVulkanTool = { String name ->
+	def exe = org.gradle.internal.os.OperatingSystem.current().windows ? ".exe" : ""
+	def sdk = System.getenv("VULKAN_SDK")
+	if (sdk) {
+		def fromSdk = file("${sdk}/Bin/${name}${exe}")
+		if (fromSdk.exists()) {
+			return fromSdk.absolutePath
+		}
+	}
+	return "${name}${exe}" // fall back to PATH; exec fails with a clear message if absent
+}
+
+abstract class CompileShaders extends DefaultTask {
+	@InputDirectory abstract DirectoryProperty getSrcDir()
+	@OutputDirectory abstract DirectoryProperty getOutDir()
+	@Input abstract Property<String> getGlslang()
+	@Input abstract Property<String> getSpirvVal()
+	@Input abstract Property<String> getSlangc()
+
+	@Inject abstract ExecOperations getExecOps()
+
+	// world.rgen.slang → "world.rgen"; world.rahit → "world.rahit" (GLSL names pass through).
+	static String outBase(File src) {
+		return src.name.endsWith(".slang") ? src.name.substring(0, src.name.length() - 6) : src.name
+	}
+
+	@TaskAction
+	void compile() {
+		def outDirFile = outDir.get().asFile
+		// Slang stages are named <name>.<stage>.slang (world.rahit.slang → world.rahit.spv); module files
+		// like world_common.slang match no stage glob and are picked up only via `import`.
+		def stageIncludes = ["rgen", "rchit", "rahit", "rmiss", "rcall", "comp", "vert", "frag"]
+				.collectMany { stage -> ["**/*.${stage}", "**/*.${stage}.slang"] }
+		def validate = { File spv ->
+			execOps.exec {
+				commandLine spirvVal.get(), "--target-env", "vulkan1.2", spv.absolutePath
+			}
+		}
+		def compileOne = { File src, File spv, List<String> defines ->
+			execOps.exec {
+				// -g (OpLine/OpSource debug info), not -gVS: the NonSemantic.Shader.DebugInfo form (-gVS)
+				// emits OpExtInstWithForwardRefsKHR (SPV_KHR_relaxed_extended_instruction), which trips a
+				// validation error unless the shaderRelaxedExtendedInstruction device feature is enabled.
+				// -g keeps source-level debug info for Nsight/RenderDoc without needing that extension.
+				commandLine([glslang.get(), "-V", "--target-env", "vulkan1.2", "-g"] + defines
+						+ [src.absolutePath, "-o", spv.absolutePath])
+			}
+			validate(spv)
+		}
+		def compileOneSlang = { File src, File spv, List<String> extra ->
+			execOps.exec {
+				// Embed Slang source and line mappings in SPIR-V for RenderDoc/Nsight source debugging.
+				commandLine([slangc.get(), src.absolutePath, "-target", "spirv",
+						"-profile", "spirv_1_5", "-matrix-layout-column-major",
+						"-warnings-as-errors", "all", "-warnings-disable", "41012", "-g"] + extra
+						+ ["-o", spv.absolutePath])
+			}
+			validate(spv)
+		}
+		def shaderFiles = srcDir.get().asFileTree.matching {
+			include stageIncludes
+		}.files.sort { it.absolutePath }
+		def duplicateOutputs = shaderFiles
+				.groupBy { "${outBase(it)}.spv" }
+				.findAll { entry -> entry.value.size() > 1 }
+		if (!duplicateOutputs.isEmpty()) {
+			throw new GradleException("Duplicate shader output name(s): "
+					+ duplicateOutputs.collect { entry -> "${entry.key} from ${entry.value*.path.join(', ')}" }.join("; "))
+		}
+		// Compile into Gradle's task-temporary directory. A compiler or validator failure leaves the last
+		// successful published output intact instead of emptying build/generated/shaders halfway through.
+		def scratchDir = new File(temporaryDir, "spv")
+		if (scratchDir.exists() && !scratchDir.deleteDir()) {
+			throw new GradleException("failed to clear shader scratch directory ${scratchDir}")
+		}
+		scratchDir.mkdirs()
+		shaderFiles.each { src ->
+			def base = outBase(src)
+			def spv = new File(scratchDir, "${base}.spv")
+			if (src.name.endsWith(".slang")) {
+				// Build both SER encodings from one source; RtDeviceBringup selects the supported variant.
+				compileOneSlang(src, spv, base == "world.rgen"
+						? ["-capability", "spvShaderInvocationReorderEXT"] : [])
+				if (base == "world.rgen") {
+					compileOneSlang(src, new File(scratchDir, "world_nv.rgen.spv"),
+							["-capability", "spvShaderInvocationReorderNV"])
+				}
+			} else {
+				compileOne(src, spv, [])
+			}
+		}
+		outDirFile.mkdirs()
+		outDirFile.listFiles().findAll { it.isFile() && it.name.endsWith(".spv") }.each { it.delete() }
+		scratchDir.listFiles().findAll { it.isFile() }.each { src ->
+			java.nio.file.Files.move(src.toPath(), new File(outDirFile, src.name).toPath(),
+					java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+		}
+	}
+}
+
+def compileShaders = tasks.register("compileShaders", CompileShaders) {
+	group = "build"
+	description = "Compiles shaders/** shader sources to SPIR-V and validates them."
+	srcDir = file("shaders")
+	outDir = layout.buildDirectory.dir("generated/shaders/caustica/rt")
+	glslang = resolveVulkanTool("glslangValidator")
+	spirvVal = resolveVulkanTool("spirv-val")
+	slangc = resolveVulkanTool("slangc")
+}
+
+def generateShaderRecords = tasks.register("generateShaderRecords", GenerateShaderRecords) {
+	group = "build"
+	description = "Generates typed Java shader records and serializers from Slang reflection."
+	worldSourceDir = file("shaders/world")
+	probeSource = file("shaders/world/world_layout_probe.slang")
+	slangc = resolveVulkanTool("slangc")
+	spirvVal = resolveVulkanTool("spirv-val")
+	outDir = layout.buildDirectory.dir("generated/sources/shaderRecords")
+}
+
+tasks.named("test", Test) {
+	useJUnitPlatform()
+}
+
+sourceSets.main.java.srcDir(files(layout.buildDirectory.dir("generated/sources/shaderRecords")).builtBy(generateShaderRecords))
+
+// Emit the .spv into the main resources so they land in the jar / on the runClient classpath at the
+// same /caustica/rt/ path the loader (RtPipeline/RtBlendPipeline) reads. builtBy wires the dependency.
+sourceSets.main.resources.srcDir(files(shaderGenRoot).builtBy(compileShaders))
+
+def ngxNativeGenRoot = layout.buildDirectory.dir("generated/ngx-natives")
+def requestedTaskNames = gradle.startParameter.taskNames.collect { it.toLowerCase(java.util.Locale.ROOT) }
+def isRunClientInvocation = requestedTaskNames.any { it == "runclient" || it.endsWith(":runclient") }
+def ngxShimConfig = (findProperty("ngxShimConfig") ?: findProperty("ngxNativeConfig") ?: "release")
+		.toString().toLowerCase(java.util.Locale.ROOT)
+def normalizeNgxVendorConfig = { String config ->
+	def normalized = config.toLowerCase(java.util.Locale.ROOT)
+	if (normalized == "release") {
+		return "rel"
+	}
+	if (normalized == "debug") {
+		return "dev"
+	}
+	if (normalized != "rel" && normalized != "dev") {
+		throw new GradleException("Unknown NGX vendor config '${config}'. Expected 'rel' or 'dev'.")
+	}
+	return normalized
+}
+def ngxVendorConfig = normalizeNgxVendorConfig(
+		(findProperty("ngxVendorConfig") ?: (isRunClientInvocation ? "dev" : "rel")).toString())
+def ngxNativeRoot = layout.buildDirectory.dir("native/ngx_shim").get().asFile
+def ngxShimOutDir = new File(ngxNativeRoot, ngxShimConfig)
+def currentNgxPlatform = {
+	def os = org.gradle.internal.os.OperatingSystem.current()
+	def arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT)
+	def x64 = arch == "x86_64" || arch == "amd64"
+	if (os.windows && x64) {
+		return "windows-x64"
+	}
+	if (os.linux && x64) {
+		return "linux-x64"
+	}
+	return null
+}()
+def ngxNativePlatforms = [
+	[
+		name: "windows-x64",
+		shimIncludes: [
+			"ngxshim.dll"
+		],
+		vendorRoot: { dlssSdkRoot, vendorConfig -> new File(dlssSdkRoot, "lib/Windows_x86_64/${vendorConfig}") },
+		vendorIncludes: [
+			"nvngx_dlssd.dll",
+			"nvngx_dlssg.dll"
+		]
+	],
+	[
+		name: "linux-x64",
+		shimIncludes: [
+			"libngxshim.so"
+		],
+		vendorRoot: { dlssSdkRoot, vendorConfig -> new File(dlssSdkRoot, "lib/Linux_x86_64/${vendorConfig}") },
+		vendorIncludes: [
+			"libnvidia-ngx-dlssd.so*",
+			"libnvidia-ngx-dlssg.so*"
+		]
+	]
+]
+def ngxNativePlatformByName = ngxNativePlatforms.collectEntries { platform -> [(platform.name): platform] }
+def requestedNgxPlatformsRaw = (findProperty("ngxPlatforms") ?: "current").toString()
+		.split(",")
+		.collect { it.trim() }
+		.findAll { !it.isEmpty() }
+def selectedNgxNativePlatforms
+if (requestedNgxPlatformsRaw.size() == 1 && requestedNgxPlatformsRaw[0].equalsIgnoreCase("all")) {
+	selectedNgxNativePlatforms = ngxNativePlatforms
+} else if (requestedNgxPlatformsRaw.size() == 1 && requestedNgxPlatformsRaw[0].equalsIgnoreCase("current")) {
+	if (currentNgxPlatform == null || !ngxNativePlatformByName.containsKey(currentNgxPlatform)) {
+		throw new GradleException("No NGX native platform is configured for this host.")
+	}
+	selectedNgxNativePlatforms = [ngxNativePlatformByName[currentNgxPlatform]]
+} else {
+	def unknownPlatforms = requestedNgxPlatformsRaw.findAll { !ngxNativePlatformByName.containsKey(it) }
+	if (!unknownPlatforms.empty) {
+		throw new GradleException("Unknown NGX platform(s): ${unknownPlatforms.join(', ')}")
+	}
+	selectedNgxNativePlatforms = requestedNgxPlatformsRaw.collect { ngxNativePlatformByName[it] }
+}
+
+def dlssSdkEnv = providers.environmentVariable("DLSS_SDK")
+def dlssSdkRootProvider = dlssSdkEnv.map { file(it) }
+
+def bundleNgxNatives = tasks.register("bundleNgxNatives") {
+	group = "build"
+	description = "Bundles NGX shim and ${ngxVendorConfig} DLSS native libraries into the mod resources."
+
+	inputs.property "ngxShimConfig", ngxShimConfig
+	inputs.property "ngxVendorConfig", ngxVendorConfig
+
+	selectedNgxNativePlatforms.each { platform ->
+		inputs.files(fileTree(ngxShimOutDir) {
+			include platform.shimIncludes
+		}).withPropertyName("ngxNatives.${platform.name}.shim")
+		inputs.files(fileTree(platform.vendorRoot(dlssSdkRootProvider.getOrElse(file("__missing_dlss_sdk__")), ngxVendorConfig)) {
+			include platform.vendorIncludes
+		}).withPropertyName("ngxNatives.${platform.name}.vendor")
+	}
+	outputs.dir(ngxNativeGenRoot)
+	outputs.upToDateWhen { false }
+
+	doLast {
+		delete(ngxNativeGenRoot)
+		def missing = []
+		def dlssSdkRoot = dlssSdkRootProvider.orNull
+		if (dlssSdkRoot == null) {
+			throw new GradleException("DLSS_SDK environment variable is not set.")
+		}
+		selectedNgxNativePlatforms.each { platform ->
+			def platformShimFiles = fileTree(ngxShimOutDir) {
+				include platform.shimIncludes
+			}.files
+			if (platformShimFiles.empty) {
+				missing += "${platform.name} shim library in ${ngxShimOutDir}"
+			}
+		}
+		selectedNgxNativePlatforms.each { platform ->
+			def platformVendorRoot = platform.vendorRoot(dlssSdkRoot, ngxVendorConfig)
+			def missingVendorIncludes = platform.vendorIncludes.findAll { vendorInclude ->
+				fileTree(platformVendorRoot) {
+					include vendorInclude
+				}.files.empty
+			}
+			if (!missingVendorIncludes.empty) {
+				missing += "${platform.name} vendor libraries ${missingVendorIncludes.join(', ')} in ${platformVendorRoot}"
+			}
+		}
+		if (!missing.empty) {
+			throw new GradleException("Missing NGX native inputs:\n - " + missing.join("\n - "))
+		}
+
+		copy {
+			selectedNgxNativePlatforms.each { platform ->
+				from(fileTree(ngxShimOutDir) {
+					include platform.shimIncludes
+				}) {
+					into "caustica/natives/${platform.name}"
+				}
+				from(fileTree(platform.vendorRoot(dlssSdkRoot, ngxVendorConfig))) {
+					include platform.vendorIncludes
+					into "caustica/natives/${platform.name}"
+				}
+			}
+			into ngxNativeGenRoot
+		}
+	}
+}
+
+sourceSets.main.resources.srcDir(files(ngxNativeGenRoot).builtBy(bundleNgxNatives))
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+	withSourcesJar()
+}
+
+tasks.named("jar", Jar).configure {
+	from(rootProject.files("LICENSE.md", "COPYING", "COPYING.LESSER", "THIRD_PARTY_NOTICES.md")) {
+		into "META-INF"
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			artifactId = project.archives_base_name
+			from components.java
+		}
+	}
+}

@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Raytracing",
+
+	"caustica.options.rt.exposureMode": "Belichtung",
+	"caustica.options.rt.exposureMode.tooltip": "Wie das Raytracing-Bild auf die Anzeigehelligkeit abgebildet wird. Automatisch passt sich der Szenenhelligkeit an; Manuell verwendet den Belichtungswert direkt.",
+	"caustica.options.rt.exposureMode.auto": "Automatisch",
+	"caustica.options.rt.exposureMode.manual": "Manuell",
+
+	"caustica.options.rt.manualEv": "Belichtung EV",
+	"caustica.options.rt.manualEv.tooltip": "Belichtungskorrektur in Blendenstufen. Im manuellen Modus ist dies die feste Belichtung. Im automatischen Modus verschiebt dies die automatische Belichtung heller oder dunkler.",
+
+	"caustica.options.rt.spp": "Samples pro Pixel",
+	"caustica.options.rt.spp.tooltip": "Pathtracing-Samples, die pro Pixel in jedem Frame genommen werden. Höhere Werte sind sauberer, aber anspruchsvoller.",
+
+	"caustica.options.rt.maxBounces": "Path-Bounces",
+	"caustica.options.rt.maxBounces.tooltip": "Maximale Anzahl sekundärer Pathtracing-Bounces nach dem Primärtreffer. Höhere Werte erfassen mehr indirektes Licht, kosten aber mehr Leistung.",
+
+	"caustica.options.rt.sunSize": "Sonnengröße",
+	"caustica.options.rt.sunSize.tooltip": "Winkelradius der Sonnen- und Mondscheibe. Größere Scheiben erzeugen weichere Halbschatten.",
+
+	"caustica.options.rt.entities": "Raytracing-Entitäten",
+	"caustica.options.rt.entities.tooltip": "Entitäten und Blockentitäten in die Raytracing-Szene einbeziehen.",
+
+	"caustica.options.rt.particles": "Raytracing-Partikel",
+	"caustica.options.rt.particles.tooltip": "Zeichnet Partikel als Billboards entlang der Kamerastrahlen in der berechneten Szene.",
+
+	"caustica.options.rt.glow": "Leuchtkontur von Entitäten",
+	"caustica.options.rt.glow.tooltip": "Zeichnet die Vanilla-Kontur des Glowing-Effekts (durch Wände) um leuchtende Entitäten.",
+
+	"caustica.options.rt.waterWaves": "Animiertes Wasser",
+	"caustica.options.rt.waterWaves.tooltip": "Animiert Wasseroberflächen-Normalen für bewegte Wellenlichter.",
+
+	"caustica.options.rt.hdr": "HDR-Ausgabe",
+	"caustica.options.rt.hdr.tooltip": "Gibt, wenn der Bildschirm es unterstützt, in HDR (ST.2084/PQ) statt SDR aus. Wird nach einem Neustart des Spiels wirksam.",
+
+	"caustica.options.rt.hdrPaperWhite": "HDR Paper White",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Absolute Helligkeit (in Nits), auf die SDR-äquivalente Szenenhelligkeit auf einem HDR-Bildschirm abgebildet wird.",
+
+	"caustica.options.rt.hdrPeak": "HDR-Spitzenhelligkeit",
+	"caustica.options.rt.hdrPeak.tooltip": "Absolute Helligkeit (in Nits), auf die Highlights zulaufen. Stelle sie auf die Spitzenhelligkeit deines HDR-Bildschirms ein.",
+
+	"caustica.options.rt.dlssQuality": "DLSS-Qualität",
+	"caustica.options.rt.dlssQuality.tooltip": "Qualitätsmodus von DLSS Ray Reconstruction. Modi mit niedrigerer Qualität rendern weniger Pixel und skalieren aggressiver hoch, um höhere Frameraten zu erreichen; Modi mit höherer Qualität rendern mehr Pixel für ein schärferes Bild. Betrifft das Bild nur, wenn DLSS Ray Reconstruction aktiviert ist.",
+	"caustica.options.rt.dlssQuality.3": "Ultraleistung",
+	"caustica.options.rt.dlssQuality.0": "Leistung",
+	"caustica.options.rt.dlssQuality.1": "Ausgewogen",
+	"caustica.options.rt.dlssQuality.2": "Qualität",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Debug-Ansicht",
+	"caustica.options.rt.debugView.tooltip": "Visualisiert einen Zwischenpuffer des Raytracings statt des finalen Bildes.",
+	"caustica.options.rt.debugView.0": "Aus",
+	"caustica.options.rt.debugView.1": "Normalen",
+	"caustica.options.rt.debugView.2": "Albedo",
+	"caustica.options.rt.debugView.3": "Tiefe",
+	"caustica.options.rt.debugView.4": "Rauheit",
+	"caustica.options.rt.debugView.5": "Bewegung",
+	"caustica.options.rt.debugView.6": "Spiegelnd",
+	"caustica.options.rt.debugView.7": "Spiegelnde Bewegung",
+	"caustica.options.rt.debugView.8": "Emissionsmaske",
+	"caustica.options.rt.debugView.9": "Emissionsquelle"
+}

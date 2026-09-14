@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "레이 트레이싱",
+
+	"caustica.options.rt.exposureMode": "노출",
+	"caustica.options.rt.exposureMode.tooltip": "레이 트레이싱 이미지가 디스플레이 밝기에 매핑되는 방식을 정합니다. 자동은 장면 휘도에 맞춰 조정하고, 수동은 노출 값을 그대로 사용합니다.",
+	"caustica.options.rt.exposureMode.auto": "자동",
+	"caustica.options.rt.exposureMode.manual": "수동",
+
+	"caustica.options.rt.manualEv": "노출 EV",
+	"caustica.options.rt.manualEv.tooltip": "스톱 단위의 노출 보정입니다. 수동에서는 고정 노출로 사용되며, 자동에서는 자동 노출을 더 밝거나 어둡게 보정합니다.",
+
+	"caustica.options.rt.spp": "픽셀당 샘플 수",
+	"caustica.options.rt.spp.tooltip": "각 프레임에서 픽셀마다 사용하는 패스 트레이싱 샘플 수입니다. 높을수록 깨끗하지만 더 많은 성능이 필요합니다.",
+
+	"caustica.options.rt.maxBounces": "경로 바운스",
+	"caustica.options.rt.maxBounces.tooltip": "첫 번째 충돌 이후의 보조 패스 트레이싱 바운스 최대 수입니다. 높을수록 더 많은 간접광을 포착하지만 비용이 증가합니다.",
+
+	"caustica.options.rt.sunSize": "태양 크기",
+	"caustica.options.rt.sunSize.tooltip": "태양과 달 원반의 각반경입니다. 원반이 클수록 그림자의 반그림자가 더 부드러워집니다.",
+
+	"caustica.options.rt.entities": "레이 트레이싱 엔티티",
+	"caustica.options.rt.entities.tooltip": "레이 트레이싱 장면에 엔티티와 블록 엔티티를 포함합니다.",
+
+	"caustica.options.rt.particles": "레이 트레이싱 파티클",
+	"caustica.options.rt.particles.tooltip": "트레이싱된 장면 안에서 파티클을 카메라 광선 빌보드로 그립니다.",
+
+	"caustica.options.rt.glow": "엔티티 발광 윤곽선",
+	"caustica.options.rt.glow.tooltip": "발광 중인 엔티티 주위에 바닐라 발광 효과 윤곽선(벽 너머 표시)을 그립니다.",
+
+	"caustica.options.rt.waterWaves": "애니메이션 물",
+	"caustica.options.rt.waterWaves.tooltip": "움직이는 물결 하이라이트를 위해 물 표면 노멀을 애니메이션합니다.",
+
+	"caustica.options.rt.hdr": "HDR 출력",
+	"caustica.options.rt.hdr.tooltip": "디스플레이가 지원하는 경우 SDR 대신 HDR(ST.2084/PQ)로 표시합니다. 게임을 다시 시작한 뒤 적용됩니다.",
+
+	"caustica.options.rt.hdrPaperWhite": "HDR 페이퍼 화이트",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "SDR 상당 장면 밝기를 HDR 디스플레이에서 매핑할 절대 밝기(nits)입니다.",
+
+	"caustica.options.rt.hdrPeak": "HDR 최대 밝기",
+	"caustica.options.rt.hdrPeak.tooltip": "하이라이트가 롤오프되는 대상 절대 밝기(nits)입니다. 디스플레이의 최대 HDR 밝기에 맞추세요.",
+
+	"caustica.options.rt.dlssQuality": "DLSS 품질",
+	"caustica.options.rt.dlssQuality.tooltip": "DLSS Ray Reconstruction 품질 모드입니다. 낮은 품질 모드는 더 적은 픽셀을 렌더링하고 더 강하게 업스케일하여 프레임레이트를 높입니다. 높은 품질 모드는 더 많은 픽셀을 렌더링하여 더 선명한 이미지를 만듭니다. DLSS Ray Reconstruction이 활성화된 경우에만 이미지에 영향을 줍니다.",
+	"caustica.options.rt.dlssQuality.3": "울트라 성능",
+	"caustica.options.rt.dlssQuality.0": "성능",
+	"caustica.options.rt.dlssQuality.1": "균형",
+	"caustica.options.rt.dlssQuality.2": "품질",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "디버그 보기",
+	"caustica.options.rt.debugView.tooltip": "최종 이미지 대신 중간 레이 트레이싱 버퍼를 시각화합니다.",
+	"caustica.options.rt.debugView.0": "꺼짐",
+	"caustica.options.rt.debugView.1": "노멀",
+	"caustica.options.rt.debugView.2": "알베도",
+	"caustica.options.rt.debugView.3": "깊이",
+	"caustica.options.rt.debugView.4": "거칠기",
+	"caustica.options.rt.debugView.5": "모션",
+	"caustica.options.rt.debugView.6": "스페큘러",
+	"caustica.options.rt.debugView.7": "스페큘러 모션",
+	"caustica.options.rt.debugView.8": "발광 마스크",
+	"caustica.options.rt.debugView.9": "발광 소스"
+}

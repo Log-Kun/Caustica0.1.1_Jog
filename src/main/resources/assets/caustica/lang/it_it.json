@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Ray tracing",
+
+	"caustica.options.rt.exposureMode": "Esposizione",
+	"caustica.options.rt.exposureMode.tooltip": "Come l'immagine con ray tracing viene mappata sulla luminosità del display. Auto si adatta alla luminanza della scena; Manuale usa direttamente il valore di esposizione.",
+	"caustica.options.rt.exposureMode.auto": "Auto",
+	"caustica.options.rt.exposureMode.manual": "Manuale",
+
+	"caustica.options.rt.manualEv": "Esposizione EV",
+	"caustica.options.rt.manualEv.tooltip": "Compensazione dell'esposizione in stop. In Manuale è l'esposizione fissa. In Auto sposta l'esposizione automatica rendendola più chiara o più scura.",
+
+	"caustica.options.rt.spp": "Campioni per pixel",
+	"caustica.options.rt.spp.tooltip": "Campioni di path tracing presi per pixel in ogni fotogramma. Valori più alti sono più puliti, ma più esigenti.",
+
+	"caustica.options.rt.maxBounces": "Rimbalzi del percorso",
+	"caustica.options.rt.maxBounces.tooltip": "Numero massimo di rimbalzi secondari del path tracing dopo il primo colpo. Valori più alti catturano più luce indiretta, ma costano di più.",
+
+	"caustica.options.rt.sunSize": "Dimensione del sole",
+	"caustica.options.rt.sunSize.tooltip": "Raggio angolare del disco del sole e della luna. Dischi più grandi proiettano penombre più morbide.",
+
+	"caustica.options.rt.entities": "Entità con ray tracing",
+	"caustica.options.rt.entities.tooltip": "Include entità ed entità blocco nella scena con ray tracing.",
+
+	"caustica.options.rt.particles": "Particelle con ray tracing",
+	"caustica.options.rt.particles.tooltip": "Disegna le particelle come billboard dei raggi della telecamera nella scena tracciata.",
+
+	"caustica.options.rt.glow": "Contorno luminoso entità",
+	"caustica.options.rt.glow.tooltip": "Disegna il contorno vanilla dell'effetto Luminescenza (attraverso i muri) attorno alle entità luminose.",
+
+	"caustica.options.rt.waterWaves": "Acqua animata",
+	"caustica.options.rt.waterWaves.tooltip": "Anima le normali della superficie dell'acqua per riflessi di onde in movimento.",
+
+	"caustica.options.rt.hdr": "Uscita HDR",
+	"caustica.options.rt.hdr.tooltip": "Presenta in HDR (ST.2084/PQ) invece che in SDR, quando il display lo supporta. Ha effetto dopo il riavvio del gioco.",
+
+	"caustica.options.rt.hdrPaperWhite": "Bianco carta HDR",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Luminosità assoluta (in nit) a cui viene mappata la luminosità della scena equivalente a SDR su un display HDR.",
+
+	"caustica.options.rt.hdrPeak": "Luminosità di picco HDR",
+	"caustica.options.rt.hdrPeak.tooltip": "Luminosità assoluta (in nit) verso cui sfumano le alte luci. Impostala sulla luminosità HDR di picco del display.",
+
+	"caustica.options.rt.dlssQuality": "Qualità DLSS",
+	"caustica.options.rt.dlssQuality.tooltip": "Modalità qualità di DLSS Ray Reconstruction. Le modalità di qualità inferiore renderizzano meno pixel e fanno un upscaling più aggressivo per aumentare il framerate; le modalità di qualità superiore renderizzano più pixel per un'immagine più nitida. Influisce sull'immagine solo quando DLSS Ray Reconstruction è attivo.",
+	"caustica.options.rt.dlssQuality.3": "Prestazioni ultra",
+	"caustica.options.rt.dlssQuality.0": "Prestazioni",
+	"caustica.options.rt.dlssQuality.1": "Bilanciata",
+	"caustica.options.rt.dlssQuality.2": "Qualità",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Vista di debug",
+	"caustica.options.rt.debugView.tooltip": "Visualizza un buffer intermedio del ray tracing invece dell'immagine finale.",
+	"caustica.options.rt.debugView.0": "Disattivato",
+	"caustica.options.rt.debugView.1": "Normali",
+	"caustica.options.rt.debugView.2": "Albedo",
+	"caustica.options.rt.debugView.3": "Profondità",
+	"caustica.options.rt.debugView.4": "Rugosità",
+	"caustica.options.rt.debugView.5": "Movimento",
+	"caustica.options.rt.debugView.6": "Speculare",
+	"caustica.options.rt.debugView.7": "Movimento speculare",
+	"caustica.options.rt.debugView.8": "Maschera emissiva",
+	"caustica.options.rt.debugView.9": "Sorgente emissiva"
+}

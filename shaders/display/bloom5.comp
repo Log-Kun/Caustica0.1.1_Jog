@@ -1,0 +1,27 @@
+#version 460
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(binding = 0, set = 0, rgba16f) uniform writeonly image2D outputImage;
+layout(binding = 1, set = 0, rgba16f) uniform readonly image2D inputImage;
+
+const float BLOOM_RADIUS = 6.4;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outputImage);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    float r = BLOOM_RADIUS;
+    vec3 color = vec3(0.0);
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2(-1.0, -1.0) * r)), ivec2(0), size - 1)).rgb * 0.0625;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2( 0.0, -1.0) * r)), ivec2(0), size - 1)).rgb * 0.1250;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2( 1.0, -1.0) * r)), ivec2(0), size - 1)).rgb * 0.0625;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2(-1.0,  0.0) * r)), ivec2(0), size - 1)).rgb * 0.1250;
+    color += imageLoad(inputImage, pixel).rgb * 0.2500;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2( 1.0,  0.0) * r)), ivec2(0), size - 1)).rgb * 0.1250;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2(-1.0,  1.0) * r)), ivec2(0), size - 1)).rgb * 0.0625;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2( 0.0,  1.0) * r)), ivec2(0), size - 1)).rgb * 0.1250;
+    color += imageLoad(inputImage, clamp(pixel + ivec2(round(vec2( 1.0,  1.0) * r)), ivec2(0), size - 1)).rgb * 0.0625;
+
+    imageStore(outputImage, pixel, vec4(color, 1.0));
+}

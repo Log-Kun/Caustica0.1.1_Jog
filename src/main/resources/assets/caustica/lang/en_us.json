@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Ray Tracing",
+
+	"caustica.options.rt.exposureMode": "Exposure",
+	"caustica.options.rt.exposureMode.tooltip": "How the ray-traced image is mapped to display brightness. Auto adapts to scene luminance; Manual uses the exposure value directly.",
+	"caustica.options.rt.exposureMode.auto": "Auto",
+	"caustica.options.rt.exposureMode.manual": "Manual",
+
+	"caustica.options.rt.manualEv": "Exposure EV",
+	"caustica.options.rt.manualEv.tooltip": "Exposure compensation in stops. In Manual, this is the fixed exposure. In Auto, this biases the auto exposure brighter or darker.",
+
+	"caustica.options.rt.spp": "Samples Per Pixel",
+	"caustica.options.rt.spp.tooltip": "Path-tracing samples taken per pixel each frame. Higher is cleaner but more demanding.",
+
+	"caustica.options.rt.maxBounces": "Path Bounces",
+	"caustica.options.rt.maxBounces.tooltip": "Maximum number of secondary path-tracing bounces after the primary hit. Higher captures more indirect light but costs more.",
+
+	"caustica.options.rt.sunSize": "Sun Size",
+	"caustica.options.rt.sunSize.tooltip": "Angular radius of the sun and moon disk. Larger discs cast softer shadow penumbrae.",
+
+	"caustica.options.rt.entities": "Ray-Traced Entities",
+	"caustica.options.rt.entities.tooltip": "Include entities and block entities in the ray-traced scene.",
+
+	"caustica.options.rt.particles": "Ray-Traced Particles",
+	"caustica.options.rt.particles.tooltip": "Draw particles as camera-ray billboards inside the traced scene.",
+
+	"caustica.options.rt.glow": "Entity Glow Outline",
+	"caustica.options.rt.glow.tooltip": "Draw the vanilla Glowing-effect outline (through walls) around glowing entities.",
+
+	"caustica.options.rt.waterWaves": "Animated Water",
+	"caustica.options.rt.waterWaves.tooltip": "Animate water-surface normals for moving wave highlights.",
+
+	"caustica.options.rt.hdr": "HDR Output",
+	"caustica.options.rt.hdr.tooltip": "Present in HDR (ST.2084/PQ) instead of SDR, when the display supports it. Takes effect after restarting the game.",
+
+	"caustica.options.rt.hdrPaperWhite": "HDR Paper White",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Absolute brightness (in nits) that SDR-equivalent scene brightness maps to on an HDR display.",
+
+	"caustica.options.rt.hdrPeak": "HDR Peak Brightness",
+	"caustica.options.rt.hdrPeak.tooltip": "Absolute brightness (in nits) highlights roll off toward. Set to your display's peak HDR brightness.",
+
+	"caustica.options.rt.dlssQuality": "DLSS Quality",
+	"caustica.options.rt.dlssQuality.tooltip": "DLSS Ray Reconstruction quality mode. Lower-quality modes render fewer pixels and upscale more aggressively for higher framerates; higher-quality modes render more pixels for a sharper image. Only affects the image when DLSS Ray Reconstruction is enabled.",
+	"caustica.options.rt.dlssQuality.3": "Ultra Performance",
+	"caustica.options.rt.dlssQuality.0": "Performance",
+	"caustica.options.rt.dlssQuality.1": "Balanced",
+	"caustica.options.rt.dlssQuality.2": "Quality",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Debug View",
+	"caustica.options.rt.debugView.tooltip": "Visualize an intermediate ray-tracing buffer instead of the final image.",
+	"caustica.options.rt.debugView.0": "Off",
+	"caustica.options.rt.debugView.1": "Normals",
+	"caustica.options.rt.debugView.2": "Albedo",
+	"caustica.options.rt.debugView.3": "Depth",
+	"caustica.options.rt.debugView.4": "Roughness",
+	"caustica.options.rt.debugView.5": "Motion",
+	"caustica.options.rt.debugView.6": "Specular",
+	"caustica.options.rt.debugView.7": "Specular Motion",
+	"caustica.options.rt.debugView.8": "Emission Mask",
+	"caustica.options.rt.debugView.9": "Emission Source"
+}

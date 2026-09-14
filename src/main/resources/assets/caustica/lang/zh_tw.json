@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "光線追蹤",
+
+	"caustica.options.rt.exposureMode": "曝光",
+	"caustica.options.rt.exposureMode.tooltip": "決定如何將光線追蹤影像映射到顯示亮度。自動會適應場景亮度；手動會直接使用曝光值。",
+	"caustica.options.rt.exposureMode.auto": "自動",
+	"caustica.options.rt.exposureMode.manual": "手動",
+
+	"caustica.options.rt.manualEv": "曝光 EV",
+	"caustica.options.rt.manualEv.tooltip": "以檔位為單位的曝光補償。手動模式下這是固定曝光；自動模式下會讓自動曝光更亮或更暗。",
+
+	"caustica.options.rt.spp": "每像素取樣數",
+	"caustica.options.rt.spp.tooltip": "每幀對每個像素進行的路徑追蹤取樣數。數值越高畫面越乾淨，但負載也越高。",
+
+	"caustica.options.rt.maxBounces": "路徑反彈",
+	"caustica.options.rt.maxBounces.tooltip": "主要命中之後的次級路徑追蹤反彈最大次數。數值越高能捕捉更多間接光，但成本也越高。",
+
+	"caustica.options.rt.sunSize": "太陽大小",
+	"caustica.options.rt.sunSize.tooltip": "太陽和月亮圓盤的角半徑。圓盤越大，投射的半影越柔和。",
+
+	"caustica.options.rt.entities": "光追實體",
+	"caustica.options.rt.entities.tooltip": "將實體和方塊實體加入光追場景。",
+
+	"caustica.options.rt.particles": "光追粒子",
+	"caustica.options.rt.particles.tooltip": "在追蹤場景中，將粒子繪製為面向相機射線的看板。",
+
+	"caustica.options.rt.glow": "實體發光輪廓",
+	"caustica.options.rt.glow.tooltip": "為發光實體繪製原版發光效果輪廓（可穿牆顯示）。",
+
+	"caustica.options.rt.waterWaves": "動態水面",
+	"caustica.options.rt.waterWaves.tooltip": "對水面法線進行動畫處理，以顯示移動波浪高光。",
+
+	"caustica.options.rt.hdr": "HDR 輸出",
+	"caustica.options.rt.hdr.tooltip": "當顯示器支援時，以 HDR (ST.2084/PQ) 而不是 SDR 顯示。重新啟動遊戲後生效。",
+
+	"caustica.options.rt.hdrPaperWhite": "HDR 紙白亮度",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "SDR 等效場景亮度在 HDR 顯示器上映射到的絕對亮度（nits）。",
+
+	"caustica.options.rt.hdrPeak": "HDR 峰值亮度",
+	"caustica.options.rt.hdrPeak.tooltip": "高光回落目標的絕對亮度（nits）。請設為顯示器的 HDR 峰值亮度。",
+
+	"caustica.options.rt.dlssQuality": "DLSS 品質",
+	"caustica.options.rt.dlssQuality.tooltip": "DLSS Ray Reconstruction 品質模式。較低品質模式會算繪較少像素並進行更積極的升頻，以獲得更高幀率；較高品質模式會算繪更多像素，以獲得更清晰的影像。僅在啟用 DLSS Ray Reconstruction 時影響畫面。",
+	"caustica.options.rt.dlssQuality.3": "超高效能",
+	"caustica.options.rt.dlssQuality.0": "效能",
+	"caustica.options.rt.dlssQuality.1": "平衡",
+	"caustica.options.rt.dlssQuality.2": "品質",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "偵錯檢視",
+	"caustica.options.rt.debugView.tooltip": "顯示光線追蹤的中間緩衝區，而不是最終影像。",
+	"caustica.options.rt.debugView.0": "關閉",
+	"caustica.options.rt.debugView.1": "法線",
+	"caustica.options.rt.debugView.2": "反照率",
+	"caustica.options.rt.debugView.3": "深度",
+	"caustica.options.rt.debugView.4": "粗糙度",
+	"caustica.options.rt.debugView.5": "運動",
+	"caustica.options.rt.debugView.6": "鏡面反射",
+	"caustica.options.rt.debugView.7": "鏡面運動",
+	"caustica.options.rt.debugView.8": "發光遮罩",
+	"caustica.options.rt.debugView.9": "發光來源"
+}

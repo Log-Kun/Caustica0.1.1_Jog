@@ -1,0 +1,42 @@
+环境准备：
+
+装JAVA25
+系统环境变量JAVA_HOME指向 JAVA25所在文件夹
+系统环境变量Path中JAVA25最高优先级，且指向 JAVA25所在文件夹\bin
+
+装vulkan SDK
+系统环境变量VULKAN_SDK、VK_SDK_PATH都指向 JAVA25所在文件夹
+系统环境变量Path中指向 VulkanSDK所在文件夹\Bin
+
+装DLSS SDK
+系统环境变量DLSS_SDK指向 DLSS-xxx.x.x所在文件夹
+
+下载gradle-9.7.1-bin.zip
+
+安装Visual Studio 18 2026
+
+
+
+开始操作：
+
+将源码包体中\gradle\wrapper\gradle-wrapper.properties内的distributionUrl至本地，例如放在桌面上的文件file:///D:/Desktop/gradle-9.7.1-bin.zip
+
+在Caustica-0.1.1\native\ngx_shim中创建并进入build文件夹，右键用power shell打开
+输入cmake .. -G "Visual Studio 18 2026" -A x64
+完成后再输入cmake --build . --config Release
+成功后应该能在\build\native\ngx_shim\release中找到ngxshim.dll
+
+在源码包中右键运行power shell，输入./gradlew build
+
+若出现
+Execution failed for task ':compileShaders' (registered in build file 'build.gradle').
+> Process 'command 'D:\VulkanSDK\Bin\slangc.exe'' finished with non-zero exit value -1 (NTSTATUS 0xFFFFFFFF)
+大概率为光影源码出现错误
+
+顺利完成后在\build\libs里找不带-source的jar就是编译完成的文件
+
+
+
+其它：
+
+项目目录下输入./gradlew compileShaders --info查看报错

@@ -1,0 +1,26 @@
+#version 460
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(binding = 0, set = 0, rgba16f) uniform writeonly image2D outputImage;
+layout(binding = 1, set = 0, rgba16f) uniform readonly image2D inputImage;
+
+const float BLOOM_THRESHOLD = 0.75;
+const float BLOOM_KNEE = 0.55;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 outSize = imageSize(outputImage);
+    if (pixel.x >= outSize.x || pixel.y >= outSize.y) return;
+
+    ivec2 inSize = imageSize(inputImage);
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(outSize);
+    ivec2 src = ivec2(clamp(uv * vec2(inSize), vec2(0.0), vec2(inSize - 1)));
+
+    vec4 source = imageLoad(inputImage, src);
+    float brightness = max(max(source.r, source.g), source.b);
+    float soft = clamp((brightness - BLOOM_THRESHOLD + BLOOM_KNEE) / (2.0 * BLOOM_KNEE), 0.0, 1.0);
+    soft = soft * soft * (3.0 - 2.0 * soft);
+    float contribution = max(brightness - BLOOM_THRESHOLD, 0.0) + soft * BLOOM_KNEE;
+    contribution /= max(brightness, 1.0e-5);
+    imageStore(outputImage, pixel, vec4(source.rgb * contribution, 1.0));
+}

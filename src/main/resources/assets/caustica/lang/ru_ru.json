@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Трассировка лучей",
+
+	"caustica.options.rt.exposureMode": "Экспозиция",
+	"caustica.options.rt.exposureMode.tooltip": "Как изображение с трассировкой лучей сопоставляется с яркостью дисплея. Авто адаптируется к яркости сцены; Вручную использует значение экспозиции напрямую.",
+	"caustica.options.rt.exposureMode.auto": "Авто",
+	"caustica.options.rt.exposureMode.manual": "Вручную",
+
+	"caustica.options.rt.manualEv": "Экспозиция EV",
+	"caustica.options.rt.manualEv.tooltip": "Коррекция экспозиции в стопах. В ручном режиме это фиксированная экспозиция. В автоматическом режиме она сдвигает автоэкспозицию светлее или темнее.",
+
+	"caustica.options.rt.spp": "Сэмплов на пиксель",
+	"caustica.options.rt.spp.tooltip": "Сэмплы path tracing на пиксель в каждом кадре. Чем выше значение, тем чище изображение, но тем выше нагрузка.",
+
+	"caustica.options.rt.maxBounces": "Отскоки пути",
+	"caustica.options.rt.maxBounces.tooltip": "Максимальное число вторичных отскоков path tracing после первичного попадания. Более высокие значения захватывают больше непрямого света, но обходятся дороже.",
+
+	"caustica.options.rt.sunSize": "Размер солнца",
+	"caustica.options.rt.sunSize.tooltip": "Угловой радиус диска солнца и луны. Более крупные диски дают более мягкие полутени.",
+
+	"caustica.options.rt.entities": "Трассируемые сущности",
+	"caustica.options.rt.entities.tooltip": "Включает сущности и блочные сущности в сцену с трассировкой лучей.",
+
+	"caustica.options.rt.particles": "Трассируемые частицы",
+	"caustica.options.rt.particles.tooltip": "Рисует частицы как билборды вдоль лучей камеры внутри трассируемой сцены.",
+
+	"caustica.options.rt.glow": "Контур свечения сущностей",
+	"caustica.options.rt.glow.tooltip": "Рисует ванильный контур эффекта свечения (сквозь стены) вокруг светящихся сущностей.",
+
+	"caustica.options.rt.waterWaves": "Анимированная вода",
+	"caustica.options.rt.waterWaves.tooltip": "Анимирует нормали поверхности воды для движущихся бликов волн.",
+
+	"caustica.options.rt.hdr": "Вывод HDR",
+	"caustica.options.rt.hdr.tooltip": "Отображает в HDR (ST.2084/PQ) вместо SDR, если дисплей поддерживает это. Вступает в силу после перезапуска игры.",
+
+	"caustica.options.rt.hdrPaperWhite": "HDR Paper White",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Абсолютная яркость (в нитах), к которой сопоставляется SDR-эквивалентная яркость сцены на HDR-дисплее.",
+
+	"caustica.options.rt.hdrPeak": "Пиковая яркость HDR",
+	"caustica.options.rt.hdrPeak.tooltip": "Абсолютная яркость (в нитах), к которой сходятся яркие участки. Установите пиковую HDR-яркость вашего дисплея.",
+
+	"caustica.options.rt.dlssQuality": "Качество DLSS",
+	"caustica.options.rt.dlssQuality.tooltip": "Режим качества DLSS Ray Reconstruction. Режимы более низкого качества рендерят меньше пикселей и агрессивнее масштабируют изображение для более высокой частоты кадров; режимы более высокого качества рендерят больше пикселей для более резкого изображения. Влияет на изображение только при включенном DLSS Ray Reconstruction.",
+	"caustica.options.rt.dlssQuality.3": "Ультра-производительность",
+	"caustica.options.rt.dlssQuality.0": "Производительность",
+	"caustica.options.rt.dlssQuality.1": "Баланс",
+	"caustica.options.rt.dlssQuality.2": "Качество",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Отладочный вид",
+	"caustica.options.rt.debugView.tooltip": "Показывает промежуточный буфер трассировки лучей вместо финального изображения.",
+	"caustica.options.rt.debugView.0": "Выкл.",
+	"caustica.options.rt.debugView.1": "Нормали",
+	"caustica.options.rt.debugView.2": "Альбедо",
+	"caustica.options.rt.debugView.3": "Глубина",
+	"caustica.options.rt.debugView.4": "Шероховатость",
+	"caustica.options.rt.debugView.5": "Движение",
+	"caustica.options.rt.debugView.6": "Зеркальность",
+	"caustica.options.rt.debugView.7": "Зеркальное движение",
+	"caustica.options.rt.debugView.8": "Маска эмиссии",
+	"caustica.options.rt.debugView.9": "Источник эмиссии"
+}

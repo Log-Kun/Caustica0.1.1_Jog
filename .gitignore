@@ -1,0 +1,11 @@
+.gradle/
+.idea/
+/build/
+/buildSrc/build/
+native/ngx_shim/build/
+run/
+out/
+*.log
+*.class
+third_party/
+bin/

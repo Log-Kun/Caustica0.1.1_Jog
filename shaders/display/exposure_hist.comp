@@ -1,0 +1,43 @@
+#version 460
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //计算着色器的工作组大小声明 每个 workgroup 中包含 16 × 16 × 1 = 256 个线程
+
+layout(binding = 0, set = 0, rgba16f) uniform readonly image2D colorImage;
+layout(std430, binding = 1, set = 0) buffer Histogram {
+    uint bins[256];
+} hist;
+
+const float LOG_MIN = -12.0;
+const float LOG_MAX = 12.0;
+const float INV_LOG_RANGE = 1.0 / (LOG_MAX - LOG_MIN);
+
+// One 16x16 workgroup == 256 threads == 256 bins, so each thread owns exactly one bin for the
+// zero-init and the final flush. Per-pixel atomics land in shared memory (one SM, fast) instead of
+// the global buffer (contended across the whole dispatch — sky pixels alias to the same few bins),
+// then only the non-empty bins pay a single global atomicAdd each.
+// 一个 16x16 的工作组包含 256 个线程和 256 个 bin，因此每个线程在清零和最终刷写阶段各负责一个 bin。
+// 每个像素的原子操作会写入共享内存（位于同一个 SM 上，速度快），而不是写入全局缓冲区（整个 dispatch
+// 之间会发生竞争，因为天空像素会集中到少数几个 bin）；最后只有非空 bin 各自执行一次全局 atomicAdd。
+shared uint localBins[256];
+
+void main() {
+    uint localIdx = gl_LocalInvocationIndex;
+    localBins[localIdx] = 0u;
+    barrier(); //确保所有线程都清零后继续
+
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(colorImage);
+    if (pix.x < size.x && pix.y < size.y) {
+        vec3 rgb = max(imageLoad(colorImage, pix).rgb, vec3(0.0));
+        float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        float logLum = clamp(log2(max(lum, 1.0e-5)), LOG_MIN, LOG_MAX);
+        uint bin = min(uint(floor((logLum - LOG_MIN) * INV_LOG_RANGE * 256.0)), 255u);
+        atomicAdd(localBins[bin], 1u);
+    }
+
+    barrier();
+    uint count = localBins[localIdx];
+    if (count > 0u) {
+        atomicAdd(hist.bins[localIdx], count);
+    }
+}

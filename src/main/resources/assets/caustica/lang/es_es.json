@@ -1,0 +1,62 @@
+{
+	"caustica.options.rt.header": "Trazado de rayos",
+
+	"caustica.options.rt.exposureMode": "Exposición",
+	"caustica.options.rt.exposureMode.tooltip": "Cómo se asigna la imagen con trazado de rayos al brillo de la pantalla. Automática se adapta a la luminancia de la escena; Manual usa directamente el valor de exposición.",
+	"caustica.options.rt.exposureMode.auto": "Automática",
+	"caustica.options.rt.exposureMode.manual": "Manual",
+
+	"caustica.options.rt.manualEv": "Exposición EV",
+	"caustica.options.rt.manualEv.tooltip": "Compensación de exposición en pasos. En Manual, es la exposición fija. En Automática, desplaza la exposición automática para aclararla u oscurecerla.",
+
+	"caustica.options.rt.spp": "Muestras por píxel",
+	"caustica.options.rt.spp.tooltip": "Muestras de trazado de caminos tomadas por píxel en cada fotograma. Un valor más alto es más limpio, pero más exigente.",
+
+	"caustica.options.rt.maxBounces": "Rebotes de camino",
+	"caustica.options.rt.maxBounces.tooltip": "Número máximo de rebotes secundarios de trazado de caminos tras el impacto primario. Un valor más alto captura más luz indirecta, pero cuesta más.",
+
+	"caustica.options.rt.sunSize": "Tamaño del sol",
+	"caustica.options.rt.sunSize.tooltip": "Radio angular del disco del sol y la luna. Los discos más grandes proyectan penumbras más suaves.",
+
+	"caustica.options.rt.entities": "Entidades con trazado de rayos",
+	"caustica.options.rt.entities.tooltip": "Incluye entidades y entidades de bloque en la escena con trazado de rayos.",
+
+	"caustica.options.rt.particles": "Partículas con trazado de rayos",
+	"caustica.options.rt.particles.tooltip": "Dibuja partículas como billboards de rayo de cámara dentro de la escena trazada.",
+
+	"caustica.options.rt.glow": "Contorno brillante de entidades",
+	"caustica.options.rt.glow.tooltip": "Dibuja el contorno del efecto Brillo de Minecraft vanilla (a través de paredes) alrededor de las entidades brillantes.",
+
+	"caustica.options.rt.waterWaves": "Agua animada",
+	"caustica.options.rt.waterWaves.tooltip": "Anima las normales de la superficie del agua para reflejos de olas en movimiento.",
+
+	"caustica.options.rt.hdr": "Salida HDR",
+	"caustica.options.rt.hdr.tooltip": "Presenta en HDR (ST.2084/PQ) en lugar de SDR cuando la pantalla lo admite. Surte efecto después de reiniciar el juego.",
+
+	"caustica.options.rt.hdrPaperWhite": "Blanco de papel HDR",
+	"caustica.options.rt.hdrPaperWhite.tooltip": "Brillo absoluto (en nits) al que se asigna el brillo de escena equivalente a SDR en una pantalla HDR.",
+
+	"caustica.options.rt.hdrPeak": "Brillo máximo HDR",
+	"caustica.options.rt.hdrPeak.tooltip": "Brillo absoluto (en nits) hacia el que se atenúan las altas luces. Ajústalo al brillo HDR máximo de tu pantalla.",
+
+	"caustica.options.rt.dlssQuality": "Calidad DLSS",
+	"caustica.options.rt.dlssQuality.tooltip": "Modo de calidad de DLSS Ray Reconstruction. Los modos de menor calidad renderizan menos píxeles y reescalan de forma más agresiva para lograr más fotogramas por segundo; los modos de mayor calidad renderizan más píxeles para una imagen más nítida. Solo afecta a la imagen cuando DLSS Ray Reconstruction está activado.",
+	"caustica.options.rt.dlssQuality.3": "Ultra rendimiento",
+	"caustica.options.rt.dlssQuality.0": "Rendimiento",
+	"caustica.options.rt.dlssQuality.1": "Equilibrado",
+	"caustica.options.rt.dlssQuality.2": "Calidad",
+	"caustica.options.rt.dlssQuality.5": "DLAA",
+
+	"caustica.options.rt.debugView": "Vista de depuración",
+	"caustica.options.rt.debugView.tooltip": "Visualiza un búfer intermedio del trazado de rayos en lugar de la imagen final.",
+	"caustica.options.rt.debugView.0": "Desactivado",
+	"caustica.options.rt.debugView.1": "Normales",
+	"caustica.options.rt.debugView.2": "Albedo",
+	"caustica.options.rt.debugView.3": "Profundidad",
+	"caustica.options.rt.debugView.4": "Rugosidad",
+	"caustica.options.rt.debugView.5": "Movimiento",
+	"caustica.options.rt.debugView.6": "Especular",
+	"caustica.options.rt.debugView.7": "Movimiento especular",
+	"caustica.options.rt.debugView.8": "Máscara de emisión",
+	"caustica.options.rt.debugView.9": "Fuente de emisión"
+}

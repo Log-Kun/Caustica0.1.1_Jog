@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "native/**"
+      - "shaders/**"
+      - "src/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "native/**"
+      - "shaders/**"
+      - "src/**"
+
+env:
+  DLSS_SDK_REF: v310.7.0
+  DLSS_SDK_PATH: third_party/DLSS
+  NGX_SHIM_CONFIG: release
+  NGX_VENDOR_CONFIG: rel
+  VULKAN_SDK_VERSION: 1.4.350.0
+  VULKAN_SDK_SHA256: b65f068ab36263559da49d7cacd7e7b9df23824ca8b68ccc522a2b06f5725df2
+
+jobs:
+  native-windows:
+    name: Build Windows NGX shim
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout Caustica
+        uses: actions/checkout@v4
+
+      - name: Checkout DLSS SDK
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/DLSS
+          ref: ${{ env.DLSS_SDK_REF }}
+          path: ${{ env.DLSS_SDK_PATH }}
+
+      - name: Setup Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: ${{ env.VULKAN_SDK_VERSION }}
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+
+      - name: Configure NGX shim
+        shell: pwsh
+        env:
+          DLSS_SDK: ${{ github.workspace }}/${{ env.DLSS_SDK_PATH }}
+        run: >
+          cmake -S native/ngx_shim
+          -B build/cmake/ngx_shim
+          -G "Visual Studio 17 2022"
+          -A x64
+
+      - name: Build NGX shim
+        shell: pwsh
+        run: cmake --build build/cmake/ngx_shim --config Release
+
+      - name: Upload Windows NGX shim
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngxshim-windows-x64
+          path: build/native/ngx_shim/release/ngxshim.dll
+          if-no-files-found: error
+
+  native-linux:
+    name: Build Linux NGX shim
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Caustica
+        uses: actions/checkout@v4
+
+      - name: Checkout DLSS SDK
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/DLSS
+          ref: ${{ env.DLSS_SDK_REF }}
+          path: ${{ env.DLSS_SDK_PATH }}
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build glslang-tools spirv-tools libvulkan-dev
+
+      - name: Configure NGX shim
+        env:
+          DLSS_SDK: ${{ github.workspace }}/${{ env.DLSS_SDK_PATH }}
+          VULKAN_SDK: /usr
+        run: >
+          cmake -S native/ngx_shim
+          -B build/cmake/ngx_shim
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build NGX shim
+        run: cmake --build build/cmake/ngx_shim --config Release
+
+      - name: Upload Linux NGX shim
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngxshim-linux-x64
+          path: build/native/ngx_shim/release/libngxshim.so
+          if-no-files-found: error
+
+  package:
+    name: Build bundled mod jar
+    runs-on: ubuntu-latest
+    needs:
+      - native-windows
+      - native-linux
+
+    steps:
+      - name: Checkout Caustica
+        uses: actions/checkout@v4
+
+      - name: Checkout DLSS SDK
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/DLSS
+          ref: ${{ env.DLSS_SDK_REF }}
+          path: ${{ env.DLSS_SDK_PATH }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Vulkan SDK shader tools
+        run: |
+          archive="vulkansdk-linux-x86_64-${VULKAN_SDK_VERSION}.tar.xz"
+          url="https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/linux/${archive}"
+          sdk_root="${RUNNER_TEMP}/vulkan-sdk/${VULKAN_SDK_VERSION}/x86_64"
+
+          curl --fail --location --retry 3 --retry-delay 5 --output "${archive}" "${url}"
+          echo "${VULKAN_SDK_SHA256}  ${archive}" | sha256sum --check
+          mkdir -p "${RUNNER_TEMP}/vulkan-sdk"
+          tar -xf "${archive}" -C "${RUNNER_TEMP}/vulkan-sdk"
+
+          echo "VULKAN_SDK=${sdk_root}" >> "${GITHUB_ENV}"
+          echo "${sdk_root}/bin" >> "${GITHUB_PATH}"
+          "${sdk_root}/bin/glslangValidator" --version
+          "${sdk_root}/bin/slangc" -version
+          "${sdk_root}/bin/spirv-val" --version
+
+      - name: Download NGX shims
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ngxshim-*
+          path: build/native/ngx_shim/release
+          merge-multiple: true
+
+      - name: Build bundled jar
+        env:
+          DLSS_SDK: ${{ github.workspace }}/${{ env.DLSS_SDK_PATH }}
+        run: >
+          bash ./gradlew build
+          -PngxPlatforms=windows-x64,linux-x64
+          -PngxVendorConfig=${{ env.NGX_VENDOR_CONFIG }}
+          -PngxShimConfig=${{ env.NGX_SHIM_CONFIG }}
+
+      - name: Upload bundled jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: caustica-bundled-jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+            !build/libs/*-dev.jar
+          if-no-files-found: error
