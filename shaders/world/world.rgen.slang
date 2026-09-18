@@ -542,7 +542,10 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 #define sigmaT 0.012
                 #define VOLUME_PHASE_G 0.72
                 #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
-                #define VOLUME_STEP_LENGTH 0.6
+                #define VOLUME_STEP_LENGTH 0.4
+                //#define VOLUME_STEP_GROW_START 1.
+                //#define VOLUME_STEP_GROW_END 60.
+                //#define VOLUME_STEP_MAX_SCALE 64.
                 #define VOLUME_SKY_LAYER_HEIGHT 24. // 天空最多步进次数 这部分主要是积分
                 #define VOLUME_LIGHT_DISTANCE 32.
                 float volumeLimit=64.;
@@ -557,9 +560,11 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 float phase = hg(dot(volumeLightDir, rd), VOLUME_PHASE_G);
                 float lightTransmittance = exp(-sigmaT * VOLUME_LIGHT_DISTANCE);
                 float viewTransmittance = 1.;
-                float volumeStepLen = VOLUME_STEP_LENGTH * (rndf(seed) * 0.3 + 0.6);
+                float volumeStepJitter = rndf(seed) * 0.3 + 0.6;
 
-                for (float t = 0.; t < segmentLength; t += volumeStepLen) {
+                float t = 0.;
+                while (t < segmentLength) {
+                    float volumeStepLen = VOLUME_STEP_LENGTH * volumeStepJitter * (1.+t);
                     float stepLen = min(volumeStepLen, segmentLength - t);
                     float3 volumePos = ro + rd * (t + 0.5 * stepLen);
                     float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
@@ -573,6 +578,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                             * lightTransmittance;
 
                     viewTransmittance *= exp(-sigmaT * stepLen);
+                            t += stepLen;
                 }
                 
                 throughput *= exp(-sigmaT * segmentLength);
