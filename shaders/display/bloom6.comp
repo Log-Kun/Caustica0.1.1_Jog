@@ -4,12 +4,12 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(binding = 0, set = 0, rgba16f) uniform writeonly image2D outputImage;
 layout(binding = 1, set = 0, rgba16f) uniform readonly image2D inputImage;
 
-#define BLOOM_RADIUS 2
+#define BLOOM_RADIUS 4
 
-void main() { //全分辨率
+void main() { //四分之一分辨率
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(outputImage);
-    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    //if (pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec3 color = imageLoad(inputImage, pixel).rgb * 0.227027;
     color += imageLoad(inputImage, clamp(pixel + ivec2(0, 1)*BLOOM_RADIUS, ivec2(0), size - 1)).rgb * 0.1945946;

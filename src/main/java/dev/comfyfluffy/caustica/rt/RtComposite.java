@@ -28,6 +28,7 @@ import net.minecraft.data.AtlasIds;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
+import net.minecraft.world.attribute.EnvironmentAttributeProbe;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.level.MoonPhase;
 import net.minecraft.world.level.material.FluidState;
@@ -56,7 +57,7 @@ import dev.comfyfluffy.caustica.rt.material.RtMaterialOverrides;
 import dev.comfyfluffy.caustica.rt.material.RtMaterialRegistry;
 import dev.comfyfluffy.caustica.rt.pipeline.RtDisplayPipeline;
 import dev.comfyfluffy.caustica.rt.pipeline.RtBloomPipeline;
-import dev.comfyfluffy.caustica.rt.pipeline.RtPostPipeline;
+import dev.comfyfluffy.caustica.rt.pipeline.RtBloomFinalPipeline;
 import dev.comfyfluffy.caustica.rt.pipeline.RtDlssFg;
 import dev.comfyfluffy.caustica.rt.pipeline.RtDlssRr;
 import dev.comfyfluffy.caustica.rt.overlay.RtWorldOverlay;
@@ -186,7 +187,7 @@ public final class RtComposite {
     private int pushSlot;
     private RtDisplayPipeline displayPipeline;
     private RtBloomPipeline bloomPipeline;
-    private RtPostPipeline postPipeline;
+    private RtBloomFinalPipeline bloomFinalPipeline;
     private RtImage output;
     private RtImage displayImage;
     // Parallel PQ-encoded ([0,1], ST.2084) HDR display image. Written alongside displayImage when HDR is
@@ -244,6 +245,7 @@ public final class RtComposite {
     private RtImage bloom3;
     private RtImage bloom4;
     private RtImage bloom5;
+    private RtImage bloom6;
     private final RtExposure exposure = new RtExposure();
 
     // Trace + guide buffers run at render res; composite (display-mapping) runs at display res.
@@ -423,20 +425,19 @@ public final class RtComposite {
         RtFrameStats.FRAME.end();
     }
 
+
+
+    ////////////////////////////////////////////////////////////////////////////////// 后处理pass主要构建函数
     public boolean composite(GpuTexture nativeColor, int width, int height) {
         frameCounter++; // global frame serial used by remaining per-frame/entity rings and diagnostics
         VulkanDiagnostics.setInFlight("graphics-latest", "frame=" + frameCounter + " size=" + width + "x" + height);
         hdrWrittenThisFrame = false; // set true again below once this frame's HDR display image is written
-        if (failed) {
-            return false;
-        }
+        if (failed)return false;
         RtContext ctx = RtContext.get();
-        if (ctx == null) {
-            return false;
-        }
+        if (ctx == null)return false;
+        
         ctx.gpuExecutor().throwIfFailed();
-        // Count-bounded terrain streaming (dispatch/drain/build kick) runs here once per render frame 鈥?before
-        // the ready gate below, because it is what MAKES terrain ready during the initial fill.
+        // 注释特别说明：退出到标题界面后，地形驻留和 frameCaptured 可能还会残留，如果不跳过，会把上一帧的 HDR 图像当作菜单背景，导致黑屏或卡住。跳过 RT 后，呈现路径会回退到原版 SDR，正确显示菜单和全景图
         try {
             RtTerrain.frame(ctx);
         } catch (Throwable t) {
@@ -453,30 +454,27 @@ public final class RtComposite {
             return false;
         }
         try {
-            if (displayPipeline == null) {
+            if (displayPipeline == null) { //仅第一次时创建，避免后续启动时浪费
                 displayPipeline = RtDisplayPipeline.create(ctx);
             }
             if (bloomPipeline == null) {
-                bloomPipeline = RtBloomPipeline.create(ctx);
+                bloomPipeline = RtBloomPipeline.create(ctx); ////////////////////////////////////////////////////////////////// 开始构建
             }
-            if (postPipeline == null) {
-                postPipeline = RtPostPipeline.create(ctx);
+            if (bloomFinalPipeline == null) {
+                bloomFinalPipeline = RtBloomFinalPipeline.create(ctx);
             }
-            // A resource reload re-stitches the block atlas. We've already torn down the world pipeline
-            // (onResourceReloadStart) so nothing references the old atlas, but MC's deferred free keeps the
-            // old view handle live for a few frames, then swaps in the new atlas (whose GPU upload may lag,
-            // leaving the handle 0 transiently). Skip RT 鈥?vanilla renders 鈥?until the handle becomes a
-            // fresh, non-zero value different from what we last bound; only then rebuild against it.
-            if (reloadRebindRequested) {
+
+
+            if (reloadRebindRequested) { //资源重载会重新拼接方块图集（block atlas）。旧图集句柄可能还会存活几帧，新图集可能还没上传完（句柄暂时为 0）。所以这里等句柄变成一个新的非零值，才继续 RT，否则跳过让原版渲染。
                 long atlas = blockAlbedoAtlasView();
                 if (atlas == 0L || atlas == boundBlockAlbedoAtlasHandle) {
                     return false;
                 }
             }
-            ensureOutput(ctx, width, height);
-            // Cheap idempotent check every frame (not just on resize): if the exposure mode is switched
-            // manual -> auto at runtime (video settings), the auto-mode histogram/state/pipeline must be
-            // allocated before recordFrame's exposure.record() below needs them, or it throws.
+
+            ensureOutput(ctx, width, height); //在 ensureOutput() 绑定图像，这里会绑定图像（即真正把图像绑定到描述符集
+            //虽然ensureOutput声明在后面，但在JAVA里这是合法的
+
             exposure.ensureResources(ctx);
             refreshPipelineShapeIfNeeded(ctx);
             RtPipeline active = ensureWorld(ctx);
@@ -694,11 +692,12 @@ public final class RtComposite {
     private void ensureOutput(RtContext ctx, int width, int height) {
         boolean rrEnabled = RtDlssRr.enabled();
         int rrQuality = rrEnabled ? RtDlssRr.quality() : Integer.MIN_VALUE;
+
         if (output != null && displayImage != null && hdrDisplayImage != null && rrOutput != null && exposure.ready()
-                && displayW == width && displayH == height && postOutput != null && bloom0 != null && bloom1 != null && bloom2 != null && bloom3 != null && bloom4 != null && bloom5 != null
-                && renderSizeRrEnabled == rrEnabled && renderSizeRrQuality == rrQuality) {
-            return;
-        }
+            && displayW == width && displayH == height && postOutput != null && bloom0 != null && bloom1 != null && bloom2 != null && bloom3 != null && bloom4 != null && bloom5 != null && bloom6 != null
+            && renderSizeRrEnabled == rrEnabled && renderSizeRrQuality == rrQuality)return;
+        
+        
         ctx.waitIdle(); // resize is rare; no in-flight frame may use the old image/descriptor
         if (displayImage != null) {
             displayImage.destroy();
@@ -715,16 +714,16 @@ public final class RtComposite {
         }
         destroyGuideImages();
 
-        displayW = width;
+        displayW = width; //为displayW这一全局变量赋值 虽然这里不会使用，但其它地方需要
         displayH = height;
-        // The path tracer + its guide buffers run at render res; DLSS-RR (or a fallback blit) upscales
-        // to display res. With RR off there is no reconstruction pass, so trace at 1:1 for a faithful reference.
-        // With RR on, ask NGX what render resolution its chosen quality mode actually expects rather
-        // than assuming a fixed ratio: different quality modes (and driver versions) use different
-        // ratios, and DLSSD's own optimal-settings query is the source of truth for what it will accept.
-        int[] optimal = rrEnabled ? RtDlssRr.INSTANCE.queryOptimalRenderSize(width, height) : null;
-        renderW = optimal != null ? optimal[0] : width;
-        renderH = optimal != null ? optimal[1] : height;
+        if (rrEnabled) {
+            int[] optimal = RtDlssRr.INSTANCE.queryOptimalRenderSize(width, height);
+            renderW = optimal[0];
+            renderH = optimal[1];
+        } else {
+            renderW = width;
+            renderH = height;
+        }
         renderSizeRrEnabled = rrEnabled;
         renderSizeRrQuality = rrQuality;
 
@@ -745,14 +744,13 @@ public final class RtComposite {
         // Display-res RT image the display mapper reads. Always present (DLSS-RR target, or blit-upscale fallback).
         rrOutput = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "DLSS-RR output " + width + "x" + height);
         postOutput = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "post process output " + width + "x" + height);
-        int bloomW = Math.max(1, (width + 3) / 4);
-        int bloomH = Math.max(1, (height + 3) / 4);
-        bloom0 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom0 " + bloomW + "x" + bloomH);
-        bloom1 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom1 " + bloomW + "x" + bloomH);
-        bloom2 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom2 " + bloomW + "x" + bloomH);
-        bloom3 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom3 " + bloomW + "x" + bloomH);
-        bloom4 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom4 " + bloomW + "x" + bloomH);
-        bloom5 = ctx.createStorageImage(bloomW, bloomH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom5 " + bloomW + "x" + bloomH);
+        bloom0 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom0 " + width + "x" + height);
+        bloom1 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom1 " + width + "x" + height);
+        bloom2 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom2 " + width + "x" + height);
+        bloom3 = ctx.createStorageImage(width/2, height/2, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom3 " + width/2 + "x" + height/2);
+        bloom4 = ctx.createStorageImage(width/2, height/2, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom4 " + width/2 + "x" + height/2);
+        bloom5 = ctx.createStorageImage(width/4, height/4, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom5 " + width/4 + "x" + height/4);
+        bloom6 = ctx.createStorageImage(width/4, height/4, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom6 " + width/4 + "x" + height/4);
 
         exposure.ensureResources(ctx);
 
@@ -761,8 +759,8 @@ public final class RtComposite {
             worldPipeline.setStorageImage(output.view);
             bindGuideImages();
         }
-        bloomPipeline.setImages(rrOutput.view, bloom0.view, bloom1.view, bloom2.view, bloom3.view, bloom4.view, bloom5.view);
-        postPipeline.setImages(postOutput.view, rrOutput.view, bloom2.view, bloom3.view, bloom4.view, bloom5.view);
+        bloomPipeline.setImages(rrOutput.view, bloom0.view, bloom1.view, bloom2.view, bloom3.view, bloom4.view,bloom5.view,bloom6.view);
+        bloomFinalPipeline.setImages(postOutput.view, rrOutput.view, bloom2.view,bloom4.view,bloom6.view);
         displayPipeline.setImages(displayImage.view, postOutput.view, exposure.image().view, hdrDisplayImage.view);
     }
 
@@ -773,7 +771,7 @@ public final class RtComposite {
      */
 
     private void destroyBloomImages() {
-        RtImage[] images = { bloom0, bloom1, bloom2, bloom3, bloom4, bloom5 };
+        RtImage[] images = { bloom0, bloom1, bloom2, bloom3, bloom4, bloom5, bloom6};
         for (RtImage image : images) {
             if (image != null) {
                 image.destroy();
@@ -785,6 +783,7 @@ public final class RtComposite {
         bloom3 = null;
         bloom4 = null;
         bloom5 = null;
+        bloom6 = null;
     }
     private void updateMotion() {
         mvCurProjView.set(frameProjection).mul(frameViewRotation);
@@ -964,9 +963,9 @@ public final class RtComposite {
                 }
             }
             VulkanCommandEncoder.memoryBarrier(cmd, stack); // rrOutput visible to the post-processing pass
-            bloomPipeline.dispatch(cmd, bloom0.width, bloom0.height);
-            VulkanCommandEncoder.memoryBarrier(cmd, stack); // bloom2-5 visible to bloomfinal
-            postPipeline.dispatch(cmd, displayW, displayH);
+                bloomPipeline.dispatch(cmd, bloom0.width, bloom0.height, bloom3.width, bloom3.height, bloom5.width, bloom5.height);
+            VulkanCommandEncoder.memoryBarrier(cmd, stack); // bloom2-4 visible to bloomfinal
+            bloomFinalPipeline.dispatch(cmd, displayW, displayH);
             VulkanCommandEncoder.memoryBarrier(cmd, stack); // postOutput visible to exposure and display mapping
 
             // Auto-exposure meters rrOutput (the post-RR, denoised/converged image), not the raw
@@ -1240,6 +1239,10 @@ public final class RtComposite {
         if (bloomPipeline != null) {
             bloomPipeline.destroy();
             bloomPipeline = null;
+        }
+        if (bloomFinalPipeline != null) {
+            bloomFinalPipeline.destroy();
+            bloomFinalPipeline = null;
         }
         if (hdrCompositePipeline != null) {
             hdrCompositePipeline.destroy();

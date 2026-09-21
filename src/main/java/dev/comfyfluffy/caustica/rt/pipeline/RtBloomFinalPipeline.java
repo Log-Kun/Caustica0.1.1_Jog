@@ -27,9 +27,9 @@ import dev.comfyfluffy.caustica.rt.RtDebugLabels;
 import static dev.comfyfluffy.caustica.rt.RtContext.check;
 
 /** Final HDR bloom/post-processing pass. */
-public final class RtPostPipeline {
+public final class RtBloomFinalPipeline {
     private static final String SHADER_DIR = "/caustica/rt/";
-    private static final int IMAGE_COUNT = 6;
+    private static final int IMAGE_COUNT = 5;
 
     private final RtContext ctx;
     private final long descriptorSetLayout;
@@ -40,7 +40,7 @@ public final class RtPostPipeline {
     private final long[] boundViews = new long[IMAGE_COUNT];
     private boolean destroyed;
 
-    private RtPostPipeline(RtContext ctx, long dsl, long pool, long set, long layout, long pipeline) {
+    private RtBloomFinalPipeline(RtContext ctx, long dsl, long pool, long set, long layout, long pipeline) {
         this.ctx = ctx;
         descriptorSetLayout = dsl;
         descriptorPool = pool;
@@ -49,7 +49,7 @@ public final class RtPostPipeline {
         this.pipeline = pipeline;
     }
 
-    public static RtPostPipeline create(RtContext ctx) {
+    public static RtBloomFinalPipeline create(RtContext ctx) {
         VkDevice vk = ctx.vk();
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorSetLayoutBinding.Buffer bindings = VkDescriptorSetLayoutBinding.calloc(IMAGE_COUNT, stack);
@@ -98,12 +98,12 @@ public final class RtPostPipeline {
             long pipeline = pipelineHandle.get(0);
             VK10.vkDestroyShaderModule(vk, module, null);
 
-            return new RtPostPipeline(ctx, dsl, pool, set, layout, pipeline);
+            return new RtBloomFinalPipeline(ctx, dsl, pool, set, layout, pipeline);
         }
     }
 
-    public void setImages(long outputView, long inputView, long bloom2View, long bloom3View, long bloom4View, long bloom5View) {
-        long[] views = { outputView, inputView, bloom2View, bloom3View, bloom4View, bloom5View };
+    public void setImages(long outputView, long inputView, long bloom2View, long bloom4View, long bloom6View) {
+        long[] views = { outputView, inputView, bloom2View, bloom4View, bloom6View};
         boolean same = true;
         for (int i = 0; i < IMAGE_COUNT; i++) {
             same &= boundViews[i] == views[i];
@@ -145,7 +145,7 @@ public final class RtPostPipeline {
 
     private static long loadModule(VkDevice vk, MemoryStack stack, String name) {
         byte[] bytes;
-        try (InputStream in = RtPostPipeline.class.getResourceAsStream(SHADER_DIR + name)) {
+        try (InputStream in = RtBloomFinalPipeline.class.getResourceAsStream(SHADER_DIR + name)) {
             if (in == null) throw new IllegalStateException("missing SPIR-V resource: " + SHADER_DIR + name);
             bytes = in.readAllBytes();
         } catch (IOException e) {
