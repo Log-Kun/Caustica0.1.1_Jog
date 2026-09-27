@@ -14,6 +14,12 @@ import net.minecraft.world.level.Level;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+
+import java.util.HashMap;
+import java.util.Map;
+
 class PointLight {
     float x, y, z;
     float r, g, b;
@@ -30,6 +36,44 @@ class PointLight {
 }
 
 public class RtLightManager {
+
+    private static final Map<Block, float[]> LIGHT_COLORS = new HashMap<>(); //正常mat只能塞10项 final表示不可修改
+    static {
+        LIGHT_COLORS.put(Blocks.TORCH, new float[] { 1.0f, 0.9f, 0.6f });
+        LIGHT_COLORS.put(Blocks.TORCH, new float[] { 1.0f, 0.9f, 0.6f }); // 暖黄
+        LIGHT_COLORS.put(Blocks.WALL_TORCH, new float[] { 1.0f, 0.9f, 0.6f });
+        LIGHT_COLORS.put(Blocks.SOUL_TORCH, new float[] { 0.2f, 0.8f, 1.0f }); // 青蓝
+        LIGHT_COLORS.put(Blocks.SOUL_WALL_TORCH, new float[] { 0.2f, 0.8f, 1.0f });
+        LIGHT_COLORS.put(Blocks.REDSTONE_TORCH, new float[] { 1.0f, 0.3f, 0.2f }); // 红
+        LIGHT_COLORS.put(Blocks.REDSTONE_WALL_TORCH, new float[] { 1.0f, 0.3f, 0.2f });
+        LIGHT_COLORS.put(Blocks.CAMPFIRE, new float[] { 1.0f, 0.7f, 0.3f }); // 橙黄
+        LIGHT_COLORS.put(Blocks.SOUL_CAMPFIRE, new float[] { 0.3f, 0.7f, 1.0f });
+        LIGHT_COLORS.put(Blocks.LANTERN, new float[] { 1.0f, 0.8f, 0.5f }); // 暖白
+        LIGHT_COLORS.put(Blocks.SOUL_LANTERN, new float[] { 0.2f, 0.7f, 1.0f });
+        LIGHT_COLORS.put(Blocks.REDSTONE_LAMP, new float[] { 1.0f, 0.5f, 0.2f }); // 橙红
+        LIGHT_COLORS.put(Blocks.SEA_LANTERN, new float[] { 0.4f, 0.9f, 1.0f }); // 青蓝
+        LIGHT_COLORS.put(Blocks.JACK_O_LANTERN, new float[] { 1.0f, 0.7f, 0.2f }); // 南瓜橙
+        //LIGHT_COLORS.put(Blocks.COPPER_BULB, new float[] { 1.0f, 0.7f, 0.4f }); // 铜橙
+        LIGHT_COLORS.put(Blocks.GLOWSTONE, new float[] { 1.0f, 0.9f, 0.5f }); // 暖黄
+        LIGHT_COLORS.put(Blocks.SHROOMLIGHT, new float[] { 1.0f, 0.6f, 0.3f }); // 橙红
+        LIGHT_COLORS.put(Blocks.OCHRE_FROGLIGHT, new float[] { 1.0f, 0.8f, 0.4f }); // 赭黄
+        LIGHT_COLORS.put(Blocks.VERDANT_FROGLIGHT, new float[] { 0.5f, 1.0f, 0.5f }); // 翠绿
+        LIGHT_COLORS.put(Blocks.PEARLESCENT_FROGLIGHT, new float[] { 1.0f, 0.8f, 1.0f }); // 珠光粉紫
+        LIGHT_COLORS.put(Blocks.SEA_PICKLE, new float[] { 0.5f, 1.0f, 0.8f }); // 水绿
+        LIGHT_COLORS.put(Blocks.END_ROD, new float[] { 1.0f, 1.0f, 0.9f }); // 冷白
+        LIGHT_COLORS.put(Blocks.LAVA, new float[] { 1.0f, 0.5f, 0.1f }); // 亮橙
+        LIGHT_COLORS.put(Blocks.FIRE, new float[] { 1.0f, 0.6f, 0.2f });
+        LIGHT_COLORS.put(Blocks.SOUL_FIRE, new float[] { 0.3f, 0.8f, 1.0f });
+        LIGHT_COLORS.put(Blocks.MAGMA_BLOCK, new float[] { 1.0f, 0.4f, 0.1f });
+        LIGHT_COLORS.put(Blocks.BEACON, new float[] { 0.6f, 0.9f, 1.0f }); // 青白
+        LIGHT_COLORS.put(Blocks.CONDUIT, new float[] { 0.4f, 0.8f, 1.0f });
+        LIGHT_COLORS.put(Blocks.GLOW_LICHEN, new float[] { 0.5f, 1.0f, 0.5f }); // 绿
+        LIGHT_COLORS.put(Blocks.CRYING_OBSIDIAN, new float[] { 0.5f, 0.2f, 0.8f }); // 紫
+        LIGHT_COLORS.put(Blocks.RESPAWN_ANCHOR, new float[] { 0.6f, 0.2f, 1.0f }); // 紫
+        LIGHT_COLORS.put(Blocks.ENDER_CHEST, new float[] { 0.5f, 0.2f, 0.8f });
+        LIGHT_COLORS.put(Blocks.CANDLE, new float[] { 1.0f, 0.85f, 0.55f });
+    }
+
     //获取坐标list
     public List<PointLight> scanNearbyLights(Level level, BlockPos centre, int radius){
         RtTerrain terrain = RtTerrain.currentOrNull();
@@ -38,7 +82,9 @@ public class RtLightManager {
             BlockState state = level.getBlockState(pos); // level 类里 getBlockState 方法返回方块状态
             int L = state.getLightEmission(); // BlockState 类里 getLightEmission 方法返回方块亮度
             if(L > 0){
-                lights.add(new PointLight(pos.getX() + 0.5f - terrain.blockX, pos.getY() + 0.5f - terrain.blockY, pos.getZ() + 0.5f - terrain.blockZ, 2.4f, 1.0f, 0.7f, L));
+                Block block_info = state.getBlock();
+                float[] color = LIGHT_COLORS.getOrDefault(block_info, new float[] { 1.0f, 1.0f, 1.0f }); //可以用get，但返回null就炸了
+                lights.add(new PointLight(pos.getX() + 0.5f - terrain.blockX, pos.getY() + 0.5f - terrain.blockY, pos.getZ() + 0.5f - terrain.blockZ, color[0], color[1], color[2], L));
             }
         }
         return lights;
