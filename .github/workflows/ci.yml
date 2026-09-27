@@ -171,6 +171,11 @@ jobs:
           path: build/native/ngx_shim/release
           merge-multiple: true
 
+      - name: Point Gradle wrapper at the public distribution
+        run: |
+          sed -i 's#^distributionUrl=.*#distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.1-bin.zip#' gradle/wrapper/gradle-wrapper.properties
+          grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties
+
       - name: Build bundled jar
         env:
           DLSS_SDK: ${{ github.workspace }}/${{ env.DLSS_SDK_PATH }}

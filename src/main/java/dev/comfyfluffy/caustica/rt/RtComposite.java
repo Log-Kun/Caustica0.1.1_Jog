@@ -939,7 +939,7 @@ public final class RtComposite {
             ByteBuffer pushConstants = stack.malloc(WorldPushConstantsData.BYTE_SIZE);
 
             // 先更新光源数据
-            lightManager.updateLights(level, cameraBlockPos, 32);
+            lightManager.updateLights(level, cameraBlockPos, 128);
 
             new WorldPushConstantsData(
                 pushBuf.deviceAddress,

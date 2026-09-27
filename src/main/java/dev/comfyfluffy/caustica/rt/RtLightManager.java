@@ -134,14 +134,4 @@ public class RtLightManager {
         // 5. 记住这一帧有多少个光源
         currentLightCount = count;
     }
-
-/* 
-    public long getLightBufferAddress() { //传出private变量
-        return lightBuffer.deviceAddress;
-    }
-
-    public int getLightCount() { // 传出private变量
-        return currentLightCount;
-    }
-        */
 }
