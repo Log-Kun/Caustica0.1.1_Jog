@@ -58,9 +58,8 @@ static float3 gv_motionObjDisp;
 // 基础常量和主要材质参数。
 #define PI 3.14159265359
 #define INV_PI 0.31830988618
-#define EMISSIVE_STRENGTH 5.
 #define SURF_BIAS 0.005
-#define RAY_TMIN 0.001
+#define RAY_TMIN 0.
 
 #define SKY_SPEC_ALBEDO float3(0.5, 0.5, 0.5)
 #define SKY_DIFF_ALBEDO float3(0.5, 0.5, 0.5)
@@ -368,6 +367,15 @@ RayDesc makeRay(float3 origin, float tmin, float3 dir) {
     return r;
 }
 
+RayDesc makeRay_L(float3 origin, float tmin, float3 dir, float rayL) {
+    RayDesc r;
+    r.Origin = origin;
+    r.TMin = tmin;
+    r.Direction = dir;
+    r.TMax = rayL; // 阴影追踪距离限制
+    return r;
+}
+
 // 光追主函数：重排线程后调用 closest-hit/miss shader。
 void traceRadianceReordered(uint cullMask, float3 ro, float tmin, float3 rd) {
 /*
@@ -402,6 +410,16 @@ float3 visibility(float3 origin, float3 dir) {
             RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
             CULL_SECONDARY, SBT_SHADOW, SBT_STRIDE_BUCKET, 0u,
             makeRay(origin, RAY_TMIN, dir), shadowVis);
+    return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
+}
+
+// 可见性查询：只跑 any-hit/透射逻辑，返回阴影透过率。
+float3 visibility_L(float3 origin, float3 dir, float rayL) {
+    shadowVis = float4(1., 1., 1., -1.);
+    HitObject hObj = HitObject::TraceRay(topLevelAS,
+            RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+            CULL_SECONDARY, SBT_SHADOW, SBT_STRIDE_BUCKET, 0u,
+            makeRay_L(origin, RAY_TMIN, dir, rayL), shadowVis);
     return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
 }
 
@@ -509,11 +527,44 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
 
 
 
+///////////////////////////////////////////////点光源部分
+
+//定义PointLight类，和Java那边一致
+struct PointLight {
+    float3 position;
+    int L;
+};
+
+//从内存地址加载光源坐标和亮度
+PointLight loadPointLight(uint64_t lightAddr, int index) {
+    lightAddr += index * 32;// 每个光源占 32 字节
+    PointLight light;
+    light.position = *(float3*)lightAddr; //把 lightAddr 当作 float3 指针，然后读出一个 float3
+    light.L = *(int*)(lightAddr + 16);
+    return light;
+}
+
+// 在单位立方体表面均匀随机采样一点
+float3 sampleCubeSurface(inout uint seed) {
+    int face = int(rndf(seed) * 6.0);      // 选一个面
+    float u = rndf(seed) * 2.0 - 1.0;      // 面上的 u 坐标 [-1, 1]
+    float v = rndf(seed) * 2.0 - 1.0;      // 面上的 v 坐标 [-1, 1]
+    
+    float3 offset;
+    if (face == 0)      offset = float3( 1.0, u, v);   // +X 面
+    else if (face == 1) offset = float3(-1.0, u, v);   // -X 面
+    else if (face == 2) offset = float3(u,  1.0, v);   // +Y 面
+    else if (face == 3) offset = float3(u, -1.0, v);   // -Y 面
+    else if (face == 4) offset = float3(u, v,  1.0);   // +Z 面
+    else                offset = float3(u, v, -1.0);   // -Z 面
+    
+    return offset * 0.5;  // 缩放到半边长 0.5
+}
 
 
 
 
-// 主路径积分循环：处理天空、体积、水、玻璃、粒子和常规不透明表面。
+///////////////////////////////////////////////主路径积分循环：处理天空、体积、水、玻璃、粒子和常规不透明表面。
 float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed) {
     float3 diffuse = float3(0.);
     float3 throughput = float3(1.); //剩余透射率
@@ -862,6 +913,47 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         float3 F0 = pbr ? payload.f0 : lerp(float3(0.04, 0.04, 0.04), albedo, metal);
 
         if (bounce == 0) {
+            // ═══════════════════════════════════════════════════
+            // 人工光源（点光源）直接光照 + 阴影
+            // ═══════════════════════════════════════════════════
+            for (int li = 0; li < pc.lightCount; li++) {
+                PointLight light = loadPointLight(pc.lightBufferAddr, li);
+                
+                // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
+                float3 samplePoint = light.position + sampleCubeSurface(seed)*0.7;
+                float3 toLight = samplePoint - hitPos;
+                float dist = length(toLight);
+
+                float strength = exp(-dist) * light.L;
+                if(strength < 0.01)continue;
+
+                float3 pointLightDir = toLight / dist;
+
+                float pointNdl = dot(n, pointLightDir);
+                if (pointNdl <= 0.) continue;
+
+                float3 pointVis = visibility_L(p, pointLightDir, dist - 0.52);
+                if (max(pointVis.r, max(pointVis.g, pointVis.b)) <= 0.01) continue;
+                
+                
+                // 复用和太阳光相同的 BRDF 计算
+                float3 pointBrdf = diffAlb * INV_PI;
+                if (pbr) {
+                    float3 h = normalize(pointLightDir + v);
+                    float ndh = max(0., dot(n, h));
+                    float ndv = dot(n, v);
+                    float vdh = max(0., dot(v, h));
+                    float D = ggxD(ndh, rough);
+                    float G = ggxG1(ndv, rough) * ggxG1(pointNdl, rough);
+                    float3 F = fresnelSchlick(vdh, F0);
+                    pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
+                }
+                
+                diffuse += throughput * pointBrdf * pointNdl * pointVis * strength;
+            }
+            // ═══════════════════════════════════════════════════
+
+
             gv_normal = n;
             gv_albedo = pbr ? diffAlb : albedo;
             gv_rough = rough;
@@ -874,9 +966,9 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
         float emission = PAYLOAD_EMISSION;
         // 发光表面直接向路径贡献辐射。
-        if (emission > 0.001) diffuse += throughput * albedo * emission * EMISSIVE_STRENGTH;
+        if (emission > 0.001) diffuse += throughput * albedo * emission * 5.;
 
-        float3 lightDir = worldPush.lightDir.xyz;
+        float3 lightDir = worldPush.lightDir.xyz; //日月方向
         float lightHalfAngle = worldPush.lightDir.w;
         if (lightHalfAngle > 0.) lightDir = sampleDisc(lightDir, lightHalfAngle, seed);
 
@@ -902,6 +994,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 diffuse += throughput * brdf * worldPush.lightRadiance.xyz * ndl * vis;
             }
         }
+
 
         // 薄表面背光透射，只在前几次反弹计算以控制开销。
         if (sss > 0.001 && bounce <= MAX_SSS_BOUNCE) {

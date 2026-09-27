@@ -23,6 +23,8 @@ public struct WorldPushConstants {
     public uint64_t tableAddr;
     public uint64_t entityTableAddr;
     public uint64_t materialTableAddr;
+    public uint64_t lightBufferAddr;   // 新增：光源缓冲区地址
+    public uint lightCount;            // 新增：光源数量
     public uint frameIndex;
     public uint debugView;
 };

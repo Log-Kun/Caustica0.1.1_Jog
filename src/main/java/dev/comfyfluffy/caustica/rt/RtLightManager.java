@@ -1,0 +1,102 @@
+package dev.comfyfluffy.caustica.rt;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.vulkan.VK10;
+
+import dev.comfyfluffy.caustica.rt.accel.RtBuffer;
+import dev.comfyfluffy.caustica.rt.terrain.RtTerrain;
+import net.minecraft.world.level.Level;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
+
+class PointLight {
+    float x, y, z;
+    int L;
+    PointLight(float x, float y, float z, int L){
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.L = L;
+    }
+}
+
+public class RtLightManager {
+    //获取坐标list
+    public List<PointLight> scanNearbyLights(Level level, BlockPos centre, int radius){
+        RtTerrain terrain = RtTerrain.currentOrNull();
+        List<PointLight> lights = new ArrayList<>(); //新建数组存储光源坐标
+        for(BlockPos pos : BlockPos.betweenClosed(centre.offset(-radius, -radius, -radius), centre.offset(radius, radius, radius))) { //范围内扫描 冒号遍历是语法糖
+            BlockState state = level.getBlockState(pos); // level 类里 getBlockState 方法返回方块状态
+            int L = state.getLightEmission(); // BlockState 类里 getLightEmission 方法返回方块亮度
+            if(L > 0){
+                lights.add(new PointLight(pos.getX() + 0.5f - terrain.blockX, pos.getY() + 0.5f - terrain.blockY, pos.getZ() + 0.5f - terrain.blockZ, L));
+            }
+        }
+        return lights;
+    }
+
+
+
+
+    //传入GPU侧
+    private RtBuffer lightBuffer;  // GPU 上的缓冲区，其中 mapped 是CPU能写的地址，deviceAddress 是GPU可读的地址
+    private static final int MAX_LIGHTS = 256;  // 最多支持256个光源
+    private int currentLightCount = 0;  // 当前帧实际有多少个光源
+
+    public void init(RtContext ctx) {
+        lightBuffer = ctx.createBuffer(
+            (long) MAX_LIGHTS * 32,                   //大小 每个光源占 32 字节
+            VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,  // 用途：存储缓冲区
+            true,                        // host-visible，CPU能写
+            "rt point lights"                  // 调试名字
+        );
+    }
+    public void updateLights(Level level, BlockPos center, int radius) {
+        // 1. 扫描附近光源
+        List<PointLight> lights = scanNearbyLights(level, center, radius);
+        
+        // 2. 拿到缓冲区的 CPU 可写内存
+        ByteBuffer buffer = MemoryUtil.memByteBuffer(lightBuffer.mapped, (int) lightBuffer.size);
+        buffer.clear();  // 清空旧数据
+        
+        // 3. 逐个写入
+        int count = Math.min(lights.size(), MAX_LIGHTS);  // 不超过容量
+        for (int i = 0; i < count; i++) {
+            PointLight light = lights.get(i);
+            
+            // 写入 3 个 float 坐标
+            buffer.putFloat(light.x);
+            buffer.putFloat(light.y);
+            buffer.putFloat(light.z);
+            buffer.putFloat(0f);     // 填充，凑够16字节
+            
+            // 写入 int 光照等级
+            buffer.putInt(light.L);
+            
+            // 再填充 12 字节，凑够32字节
+            buffer.putInt(0);
+            buffer.putInt(0);
+            buffer.putInt(0);
+        }
+        
+        // 4. 告诉 Vulkan：我写完了，数据可以从 CPU 传到 GPU 了
+        lightBuffer.flush(0L, (long) count * 32);
+        
+        // 5. 记住这一帧有多少个光源
+        currentLightCount = count;
+    }
+
+
+    public long getLightBufferAddress() {
+        return lightBuffer.deviceAddress;
+    }
+
+    public int getLightCount() {
+        return currentLightCount;
+    }
+}

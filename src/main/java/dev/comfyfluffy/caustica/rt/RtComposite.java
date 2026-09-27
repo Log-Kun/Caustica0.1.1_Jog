@@ -248,6 +248,8 @@ public final class RtComposite {
     private RtImage bloom6;
     private final RtExposure exposure = new RtExposure();
 
+    private final RtLightManager lightManager = new RtLightManager();
+
     // Trace + guide buffers run at render res; composite (display-mapping) runs at display res.
     private int displayW = -1;
     private int displayH = -1;
@@ -541,6 +543,8 @@ public final class RtComposite {
             }
             bindWorldTextures(ctx);
             reloadRebindRequested = false;
+
+            lightManager.init(ctx); // 初始化光源管理器
         }
         // The TLAS is rebuilt and bound per frame in recordFrame since dynamic entity content animates
         // the instance set every frame.
@@ -824,7 +828,7 @@ public final class RtComposite {
             }
 
             boolean rrDone = false;
-            RtTerrain terrain = RtTerrain.currentOrNull();
+            RtTerrain terrain = RtTerrain.currentOrNull(); //调用静态方法，仅当调用构造函数时用new
             // Select the next BDA ring slot; the generated WorldPushData serializer fills it once all
             // frame-derived values (including entity addresses and block-breaking entries) are known.
             pushSlot = (pushSlot + 1) % PUSH_RING;
@@ -933,9 +937,20 @@ public final class RtComposite {
 
             // Push the BDA ring slot's address plus the small hot subset used directly by the shaders.
             ByteBuffer pushConstants = stack.malloc(WorldPushConstantsData.BYTE_SIZE);
-            new WorldPushConstantsData(pushBuf.deviceAddress, terrain.tableAddress(), fe.geomTableAddr(),
-                    RtMaterialRegistry.INSTANCE.tableAddress(),
-                    (int) frameCounter, debugView).write(pushConstants);
+
+            // 先更新光源数据
+            lightManager.updateLights(level, cameraBlockPos, 32);
+
+            new WorldPushConstantsData(
+                pushBuf.deviceAddress,
+                terrain.tableAddress(),
+                fe.geomTableAddr(),
+                RtMaterialRegistry.INSTANCE.tableAddress(),
+                lightManager.getLightBufferAddress(), // 新增：缓冲区地址
+                lightManager.getLightCount(), // 新增：光源数量
+                (int) frameCounter,
+                debugView
+            ).write(pushConstants);
             try (RtDebugLabels.Scope ignored = RtDebugLabels.scope(ctx, cmd, "world trace");
                  RtFrameStats.Scope ignoredStats = RtFrameStats.FRAME.stage("frame.trace")) {
                 active.trace(cmd, renderW, renderH, pushConstants);

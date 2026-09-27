@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "D:/Desktop/Caustica0.1.1Jog/native/ngx_shim"
+    "cmake.sourceDirectory": "D:/Desktop/Caustica0.1.1Jog/native/ngx_shim",
+    "java.compile.nullAnalysis.mode": "automatic"
 }

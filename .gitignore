@@ -9,3 +9,5 @@ out/
 *.class
 third_party/
 bin/
+
+.arts/
