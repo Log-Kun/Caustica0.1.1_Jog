@@ -946,8 +946,8 @@ public final class RtComposite {
                 terrain.tableAddress(),
                 fe.geomTableAddr(),
                 RtMaterialRegistry.INSTANCE.tableAddress(),
-                lightManager.getLightBufferAddress(), // 新增：缓冲区地址
-                lightManager.getLightCount(), // 新增：光源数量
+                (long)lightManager.lightBuffer.deviceAddress, // 新增：缓冲区地址
+                lightManager.currentLightCount, // 新增：光源数量
                 (int) frameCounter,
                 debugView
             ).write(pushConstants);

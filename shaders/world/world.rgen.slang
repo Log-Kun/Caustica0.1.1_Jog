@@ -532,15 +532,17 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
 //定义PointLight类，和Java那边一致
 struct PointLight {
     float3 position;
+    float3 color;
     int L;
 };
 
 //从内存地址加载光源坐标和亮度
 PointLight loadPointLight(uint64_t lightAddr, int index) {
-    lightAddr += index * 32;// 每个光源占 32 字节
+    lightAddr += index * 48;// 每个光源占 48 字节
     PointLight light;
     light.position = *(float3*)lightAddr; //把 lightAddr 当作 float3 指针，然后读出一个 float3
-    light.L = *(int*)(lightAddr + 16);
+    light.color = *(float3*)(lightAddr + 16);
+    light.L = *(int*)(lightAddr + 32);
     return light;
 }
 
@@ -949,7 +951,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
                 }
                 
-                diffuse += throughput * pointBrdf * pointNdl * pointVis * strength;
+                diffuse += throughput * pointBrdf * pointNdl * pointVis * strength * light.color;
             }
             // ═══════════════════════════════════════════════════
 
