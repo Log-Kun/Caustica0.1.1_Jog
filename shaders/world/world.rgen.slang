@@ -189,7 +189,6 @@ float2 causticLanding(float2 xz, float t, float3 inc, float h) {
 }
 
 float waterCaustic(float3 exitPos, float3 lightDir, float waterDist) {
-
     float fade = smoothstep(0.06, 0.18, lightDir.y);
     if (fade <= 0.) return 1.;
     float h = waterDist * lightDir.y;
@@ -358,23 +357,6 @@ float3 sampleGGXVNDF(float3 n, float3 ve, float rough, inout uint s) {
 #define SBT_RADIANCE 0u
 #define SBT_SHADOW TERRAIN_BUCKETS
 #define SBT_STRIDE_BUCKET 1u
-RayDesc makeRay(float3 origin, float tmin, float3 dir) {
-    RayDesc r;
-    r.Origin = origin;
-    r.TMin = tmin;
-    r.Direction = dir;
-    r.TMax = 256.; // 阴影追踪距离限制256格
-    return r;
-}
-
-RayDesc makeRay_L(float3 origin, float tmin, float3 dir, float rayL) {
-    RayDesc r;
-    r.Origin = origin;
-    r.TMin = tmin;
-    r.Direction = dir;
-    r.TMax = rayL; // 阴影追踪距离限制
-    return r;
-}
 
 // 光追主函数：重排线程后调用 closest-hit/miss shader。
 void traceRadianceReordered(uint cullMask, float3 ro, float tmin, float3 rd) {
@@ -401,6 +383,24 @@ payload             要传给 hit/miss shader 的数据包
     调用 world.rmiss.slang 的 miss
     miss 写 payload.albedo = 天空颜色，payload.hitT = -1
 */
+}
+
+RayDesc makeRay(float3 origin, float tmin, float3 dir) {
+    RayDesc r;
+    r.Origin = origin;
+    r.TMin = tmin;
+    r.Direction = dir;
+    r.TMax = 256.; // 阴影追踪距离限制256格
+    return r;
+}
+
+RayDesc makeRay_L(float3 origin, float tmin, float3 dir, float rayL) {
+    RayDesc r;
+    r.Origin = origin;
+    r.TMin = tmin;
+    r.Direction = dir;
+    r.TMax = rayL; // 阴影追踪距离限制
+    return r;
 }
 
 // 可见性查询：只跑 any-hit/透射逻辑，返回阴影透过率。
@@ -847,9 +847,6 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 { float3 vis = visibility(shadowOrigin, lightDir); if (max(vis.r, max(vis.g, vis.b)) > 0.) diffuse += throughput * albedo * INV_PI * worldPush.lightRadiance.xyz * ndl * vis; }
             }
 
-            if (bounce >= maxBounces) {
-                break;
-            }
             throughput *= albedo;
             ro = hitPos + n * SURF_BIAS;
             rd = cosineDir(n, seed);
@@ -1059,8 +1056,8 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         }
 
         if (bounce >= rrStart) { // 当路径的剩余透射率过低时，随机终止路径以节省计算。
-            float q = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0., 1.);
-            if (rndf(seed) > q)break;
+            float q = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0., 1.) * 1.2 - 0.2;
+            if (rndf(seed) >= q)break;
             throughput /= q;
         }
     }

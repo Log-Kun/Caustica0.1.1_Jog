@@ -103,7 +103,7 @@ public class RtLightManager {
 
     //传入GPU侧
     public RtBuffer lightBuffer;  // GPU 上的缓冲区，其中 mapped 是CPU能写的地址，deviceAddress 是GPU可读的地址
-    private static final int MAX_LIGHTS = 1024;  // 最多支持8192个光源
+    private static final int MAX_LIGHTS = 1024;  // 最多支持1024个光源
     public int currentLightCount = 0;  // 当前帧实际有多少个光源
 
     public void init(RtContext ctx) {
@@ -116,36 +116,34 @@ public class RtLightManager {
     }
     public void updateLights(Level level, BlockPos center) {
 
-        // 1. 扫描附近光源
+        //扫描附近光源
         List<PointLight> lights = scanNearbyLights(level, center);
 
-        if(frameCounter == 0){ //仅在某一帧更新光源
-
+        if(frameCounter == 0){ //仅在某一帧更新光源，防止列表更新导致闪烁
             
-            // 2. 拿到缓冲区的 CPU 可写内存
-            ByteBuffer buffer = MemoryUtil.memByteBuffer(lightBuffer.mapped, (int) lightBuffer.size);
+            ByteBuffer buffer = MemoryUtil.memByteBuffer(lightBuffer.mapped, (int) lightBuffer.size); //拿到缓冲区的 CPU 可写内存
             
-            // 3. 逐个写入
             long addr = lightBuffer.mapped;
             int count = Math.min(lights.size(), MAX_LIGHTS);  // 不超过容量
             RtTerrain terrain = RtTerrain.currentOrNull();
-            //if (terrain == null)return lights;
-            for (int i = 0; i < count; i++) {
-                PointLight l = lights.get(i);
-                long base = addr + i * 32; //需要对齐到16的倍数
-                MemoryUtil.memPutInt(base + 0, l.x - terrain.blockX); //自动在内存对齐位写入，主要顾虑在slang的结构体
-                MemoryUtil.memPutInt(base + 4, l.y - terrain.blockY);
-                MemoryUtil.memPutInt(base + 8, l.z - terrain.blockZ);
-                MemoryUtil.memPutFloat(base + 16, l.r);
-                MemoryUtil.memPutFloat(base + 20, l.g);
-                MemoryUtil.memPutFloat(base + 24, l.b);
+            if (terrain != null){
+                for (int i = 0; i < count; i++) {
+                    PointLight l = lights.get(i);
+                    long base = addr + i * 32; //需要对齐到16的倍数
+                    MemoryUtil.memPutInt(base + 0, l.x - terrain.blockX); //自动在内存对齐位写入，主要顾虑在slang的结构体
+                    MemoryUtil.memPutInt(base + 4, l.y - terrain.blockY);
+                    MemoryUtil.memPutInt(base + 8, l.z - terrain.blockZ);
+                    MemoryUtil.memPutFloat(base + 16, l.r);
+                    MemoryUtil.memPutFloat(base + 20, l.g);
+                    MemoryUtil.memPutFloat(base + 24, l.b);
+                }
+                
+                //告诉 Vulkan：我写完了，数据可以从 CPU 传到 GPU 了
+                lightBuffer.flush(0L, (long) count * 32);
+                
+                //记这一帧有多少光源
+                currentLightCount = count;
             }
-            
-            // 4. 告诉 Vulkan：我写完了，数据可以从 CPU 传到 GPU 了
-            lightBuffer.flush(0L, (long) count * 32);
-            
-            // 5. 记住这一帧有多少个光源
-            currentLightCount = count;
         }
     }
 }
