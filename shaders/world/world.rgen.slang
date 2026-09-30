@@ -605,7 +605,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
                     float t = 0.;
                     while (t < segmentLength) { //开启体积光
-                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.3 + 0.6) * (1.+t)
+                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.25 + 0.4) * (1.+t)
                         float stepLen = min(volumeStepLen, segmentLength - t);
                         float3 volumePos = ro + rd * (t + 0.5 * stepLen);
                         float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
@@ -630,19 +630,18 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                                 PointLight pointLight = loadPointLight(pc.lightBufferAddr, li);
                                 float3 toPointLight = float3(pointLight.position) + lightooff;
                                 float pointDist = length(toPointLight);
-                                float pointStrength = exp(-pointDist) * 50.;
-                                if (pointStrength < 0.02) continue; // 衰减到可忽略，跳过
+                                float pointStrength = exp(-pointDist) * viewTransmittance * 50.;
+                                if (pointStrength < 0.2) continue; // 衰减到可忽略，跳过
                                 float3 pointLightDir = toPointLight / pointDist;
                                 #define volumePointPhase hg(dot(pointLightDir, rd), VOLUME_PHASE_G)
                                 #define volumePointTransmittance exp(-sigmaT * pointDist)
-                                diffuse += viewTransmittance
-                                        * volumePointPhase
-                                        * volumePointTransmittance
-                                        * pointStrength
+                                pointStrength *= volumePointPhase * volumePointTransmittance;
+                                if (pointStrength < 0.001) continue; // 衰减到可忽略，跳过
+                                diffuse += pointStrength
                                         * throughput
                                         * segmentScatter
-                                        * visibility_L(volumePos, pointLightDir, max(pointDist - 0.49, 0.))
-                                        * pointLight.color;
+                                        * pointLight.color
+                                        * visibility_L(volumePos, pointLightDir, max(pointDist - 0.49, 0.));
                             }
                         }
                         viewTransmittance *= exp(-sigmaT * stepLen);

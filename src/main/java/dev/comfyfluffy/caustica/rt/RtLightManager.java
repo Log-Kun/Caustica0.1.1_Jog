@@ -64,7 +64,7 @@ public class RtLightManager {
         LIGHT_COLORS.put(Blocks.MAGMA_BLOCK, new float[] { 0.17f, 0.10f, 0.03f }); // 琥珀 #d3852b, Lv3
         LIGHT_COLORS.put(Blocks.BEACON, new float[] { 0.60f, 0.90f, 1.00f }); // 青白(官方默认白), Lv15
         LIGHT_COLORS.put(Blocks.CONDUIT, new float[] { 0.40f, 0.80f, 1.00f }); // 青(官方默认白), Lv15
-        LIGHT_COLORS.put(Blocks.GLOW_LICHEN, new float[] { 0.33f, 0.44f, 0.34f }); // 苔绿 #b7f1bc, Lv7
+        LIGHT_COLORS.put(Blocks.GLOW_LICHEN, new float[] { 0.066f, 0.088f, 0.068f }); // 苔绿 #b7f1bc, Lv1
         LIGHT_COLORS.put(Blocks.CRYING_OBSIDIAN, new float[] { 0.33f, 0.13f, 0.53f }); // 紫, Lv10
         LIGHT_COLORS.put(Blocks.RESPAWN_ANCHOR, new float[] { 0.64f, 0.20f, 0.92f }); // 紫 #a233eb, 满充能 Lv15
         LIGHT_COLORS.put(Blocks.ENDER_CHEST, new float[] { 0.23f, 0.09f, 0.37f }); // 紫, Lv7
