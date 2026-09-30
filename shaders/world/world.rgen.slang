@@ -531,18 +531,16 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
 
 //定义PointLight类，和Java那边一致
 struct PointLight {
-    float3 position;
+    int3 position;
     float3 color;
-    int L;
 };
 
 //从内存地址加载光源坐标和亮度
 PointLight loadPointLight(uint64_t lightAddr, int index) {
-    lightAddr += index * 48;// 每个光源占 48 字节
+    lightAddr += index * 32;// 每个光源占 32 字节
     PointLight light;
-    light.position = *(float3*)lightAddr; //把 lightAddr 当作 float3 指针，然后读出一个 float3
+    light.position = *(int3*)lightAddr; //把 lightAddr 当作 int3 指针，然后读出一个 int3
     light.color = *(float3*)(lightAddr + 16);
-    light.L = *(int*)(lightAddr + 32);
     return light;
 }
 
@@ -588,163 +586,180 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         payload.hitT = -1.;
         PAYLOAD_SET_TRACE_STATE(showCelestial, rayConeWidth, rayConeSpread);
         traceRadianceReordered(bounce == 0 ? CULL_PRIMARY : CULL_SECONDARY, ro, 0., rd);
+        if(bounce == 0) {
+            if (!inWater){
+                { // 体积光部分 近地薄雾：只处理空气中的一小段，水下衰减交给水体吸收。
+                    // 近地体积雾参数，与云层是两套独立积分。
+                    #define sigmaT 0.012
+                    #define VOLUME_PHASE_G 0.72
+                    #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
+                    #define VOLUME_STEP_LENGTH 0.4
+                    #define VOLUME_SKY_LAYER_HEIGHT 24. // 天空最多步进次数 这部分主要是积分
+                    #define VOLUME_LIGHT_DISTANCE 32.
+                    // 沿视线可积分的最大距离：命中面处截断，未命中时用天空层高度限制。
+                    float segmentLength = payload.hitT >= 0.
+                        ? min(payload.hitT, 64.)
+                        : (rd.y > 0. ? min(64., VOLUME_SKY_LAYER_HEIGHT / max(rd.y, 0.05)) : 64.);
 
-        if (!inWater) {
-            {   // 体积光部分 近地薄雾：只处理空气中的一小段，水下衰减交给水体吸收。
-                // 近地体积雾参数，与云层是两套独立积分。
-                #define sigmaT 0.012
-                #define VOLUME_PHASE_G 0.72
-                #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
-                #define VOLUME_STEP_LENGTH 0.4
-                //#define VOLUME_STEP_GROW_START 1.
-                //#define VOLUME_STEP_GROW_END 60.
-                //#define VOLUME_STEP_MAX_SCALE 64.
-                #define VOLUME_SKY_LAYER_HEIGHT 24. // 天空最多步进次数 这部分主要是积分
-                #define VOLUME_LIGHT_DISTANCE 32.
-                float volumeLimit=64.;
+                    float viewTransmittance = 1.;
 
-                if (payload.hitT < 0. && rd.y > 0.)volumeLimit = min(volumeLimit, VOLUME_SKY_LAYER_HEIGHT / max(rd.y, 0.05));
+                    float t = 0.;
+                    while (t < segmentLength) { //开启体积光
+                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.3 + 0.6) * (1.+t)
+                        float stepLen = min(volumeStepLen, segmentLength - t);
+                        float3 volumePos = ro + rd * (t + 0.5 * stepLen);
+                        float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
 
-                float segmentLength = payload.hitT >= 0.
-                    ? min(payload.hitT, volumeLimit)
-                    : volumeLimit;
-
-                float3 volumeLightDir = normalize(worldPush.lightDir.xyz);
-                float phase = hg(dot(volumeLightDir, rd), VOLUME_PHASE_G);
-                float lightTransmittance = exp(-sigmaT * VOLUME_LIGHT_DISTANCE);
-                float viewTransmittance = 1.;
-                float volumeStepJitter = rndf(seed) * 0.3 + 0.6;
-
-                float t = 0.;
-                while (t < segmentLength) {
-                    float volumeStepLen = VOLUME_STEP_LENGTH * volumeStepJitter * (1.+t);
-                    float stepLen = min(volumeStepLen, segmentLength - t);
-                    float3 volumePos = ro + rd * (t + 0.5 * stepLen);
-                    float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
-
-                    diffuse += throughput
-                            * viewTransmittance
-                            * segmentScatter
-                            * phase
-                            * worldPush.lightRadiance.xyz
-                            * visibility(volumePos, volumeLightDir)
-                            * lightTransmittance;
-
-                    viewTransmittance *= exp(-sigmaT * stepLen);
-                            t += stepLen;
-                }
-                
-                throughput *= exp(-sigmaT * segmentLength);
-            } // 体积光结束
-
-
-
-            { // 云层部分 求出当前光线穿过云盒的 t 范围，再在这个范围内做稀疏采样。
-                float cloudBase = 190.;
-                float cloudTop = 430.;
-                float cloudFadeStart = 1400.;
-                float cloudMaxDistance = 1800.;
-                float rayLimit = payload.hitT >= 0. ? min(payload.hitT, cloudMaxDistance) : cloudMaxDistance;
-
-                float t0 = 0.;
-                float t1 = -1.;
-                if (rayLimit > 0.) {
-                    float roWorldY = ro.y + worldPush.waterAnchor.z;
-                    if (abs(rd.y) > 0.01) {
-                        float ta = (cloudBase - roWorldY) / rd.y;
-                        float tb = (cloudTop - roWorldY) / rd.y;
-                        t0 = max(min(ta, tb), 0.);
-                        t1 = min(max(ta, tb), rayLimit);
-                    } else if (roWorldY > cloudBase && roWorldY < cloudTop) {
-                        t1 = rayLimit;
-                    }
-                }
-
-                if (t1 > t0) {
-                    float T = 1.;
-                    float3 cloudL = float3(0.);
-                    float sigmaT_water = 0.012;
-                    float scatterAlbedo = 0.88;
-                    float cloudG = 0.38;
-                    float3 cloudLightDir = normalize(worldPush.lightDir.xyz);
-                    float cloudLightUp = smoothstep(0.02, 0.15, cloudLightDir.y);
-                    float hgPhase = hg(dot(rd, cloudLightDir), cloudG);
-                    float cloudStepLen = (t1 - t0) / 8.;
-                    float jitter = rndf(seed) * 0.8 + 0.1;
-                    float day = worldPush.sunDir.w;
-
-                    for (int s = 0; s < 3; s++) {
-                        float t = t0 + (float(s) + jitter) * cloudStepLen;
-                        float3 cp = ro + rd * t;
-                        float distFade = 1. - smoothstep(cloudFadeStart, cloudMaxDistance, t);
-                        float rawDensity = cloudDensity(cp);
-                        float density = rawDensity * distFade;
-                        if (density <= 0.001) {
-                            continue;
+                        { //日月体积光：沿主光方向的 in-scattering
+                            float3 volumeLightDir = normalize(worldPush.lightDir.xyz);
+                            #define volumeSunPhase hg(dot(volumeLightDir, rd), VOLUME_PHASE_G)
+                            #define volumeSunTransmittance exp(-sigmaT * VOLUME_LIGHT_DISTANCE)
+                            diffuse += viewTransmittance
+                                    * volumeSunPhase
+                                    * volumeSunTransmittance
+                                    * throughput
+                                    * segmentScatter
+                                    * worldPush.lightRadiance.xyz
+                                    * visibility(volumePos, volumeLightDir);
                         }
 
-                        float lightT = 0.45;
-                        if (cloudLightUp > 0.) {
-                            float lightProbe = cloudDensity(cp + cloudLightDir * 90.);
-                            float edgeLight = clamp((rawDensity - lightProbe) * 3. + 0.35, 0., 1.);
-                            lightT = lerp(0.20, 1., edgeLight * edgeLight * (3. - 2. * edgeLight));
+                        { //点光源体积光：遍历光源累加 in-scattering 贡献。
+                            // 与日月一样是相位函数散射，但透射率用真实距离（点光源近，固定距离会失真）。
+                            float3 lightooff =  0.5 - volumePos + sampleCubeSurface(seed)*0.7;
+                            for (int li = 0; li < pc.lightCount; li++) {
+                                PointLight pointLight = loadPointLight(pc.lightBufferAddr, li);
+                                float3 toPointLight = float3(pointLight.position) + lightooff;
+                                float pointDist = length(toPointLight);
+                                float pointStrength = exp(-pointDist) * 50.;
+                                if (pointStrength < 0.02) continue; // 衰减到可忽略，跳过
+                                float3 pointLightDir = toPointLight / pointDist;
+                                #define volumePointPhase hg(dot(pointLightDir, rd), VOLUME_PHASE_G)
+                                #define volumePointTransmittance exp(-sigmaT * pointDist)
+                                diffuse += viewTransmittance
+                                        * volumePointPhase
+                                        * volumePointTransmittance
+                                        * pointStrength
+                                        * throughput
+                                        * segmentScatter
+                                        * visibility_L(volumePos, pointLightDir, max(pointDist - 0.49, 0.))
+                                        * pointLight.color;
+                            }
                         }
+                        viewTransmittance *= exp(-sigmaT * stepLen);
+                        t += stepLen;
+                    }
+                    throughput *= exp(-sigmaT * segmentLength);
+                } // 体积光结束
 
-                        float alpha = 1. - exp(-sigmaT_water * density * cloudStepLen);
-                        float viewLight = max(dot(rd, cloudLightDir), 0.);
-                        float phaseFit = lerp(0.07, min(hgPhase * 1.8, 0.55), smoothstep(0., 0.9, viewLight));
-                        float powder = 1. - exp(-density * 2.2);
-                        float rim = smoothstep(0.15, 0.85, lightT) * smoothstep(0.20, 0.95, viewLight);
-                        float3 ambientCloud = lerp(float3(0.010, 0.014, 0.028), float3(0.20, 0.22, 0.24), day);
-                        float3 directCloud = worldPush.lightRadiance.xyz * scatterAlbedo * cloudLightUp
-                                * (phaseFit * lightT * (0.22 + 0.78 * powder) + rim * 0.030) * day;
 
-                        cloudL += T * alpha * (ambientCloud + directCloud);
-                        T *= 1. - alpha;
-                        if (T < 0.02)break;
+
+                { // 云层部分 求出当前光线穿过云盒的 t 范围，再在这个范围内做稀疏采样。
+                    float cloudBase = 190.;
+                    float cloudTop = 430.;
+                    float cloudFadeStart = 1400.;
+                    float cloudMaxDistance = 1800.;
+                    float rayLimit = payload.hitT >= 0. ? min(payload.hitT, cloudMaxDistance) : cloudMaxDistance;
+
+                    float t0 = 0.;
+                    float t1 = -1.;
+                    if (rayLimit > 0.) {
+                        float roWorldY = ro.y + worldPush.waterAnchor.z;
+                        if (abs(rd.y) > 0.01) {
+                            float ta = (cloudBase - roWorldY) / rd.y;
+                            float tb = (cloudTop - roWorldY) / rd.y;
+                            t0 = max(min(ta, tb), 0.);
+                            t1 = min(max(ta, tb), rayLimit);
+                        } else if (roWorldY > cloudBase && roWorldY < cloudTop) {
+                            t1 = rayLimit;
+                        }
                     }
 
-                    diffuse += throughput * cloudL;
-                    throughput *= T;
-                }
-            } // 云层结束
-        
-        }else{ // 水下体积光
-                    
-            #define WATER_VOLUME_MAX_DISTANCE 64.
-            #define WATER_VOLUME_STEPS 8
-            #define WATER_VOLUME_SCATTER 0.08
-            #define WATER_VOLUME_PHASE_G 0.45
-            #define WATER_VOLUME_INTENSITY 0.5
+                    if (t1 > t0) {
+                        float T = 1.;
+                        float3 cloudL = float3(0.);
+                        float sigmaT_water = 0.012;
+                        float scatterAlbedo = 0.88;
+                        float cloudG = 0.38;
+                        float3 cloudLightDir = normalize(worldPush.lightDir.xyz);
+                        float cloudLightUp = smoothstep(0.02, 0.15, cloudLightDir.y);
+                        float hgPhase = hg(dot(rd, cloudLightDir), cloudG);
+                        float cloudStepLen = (t1 - t0) / 8.;
+                        float jitter = rndf(seed) * 0.8 + 0.1;
+                        float day = worldPush.sunDir.w;
 
-            float waterSegment = payload.hitT >= 0. ? payload.hitT : WATER_VOLUME_MAX_DISTANCE;
-            waterSegment = min(waterSegment, WATER_VOLUME_MAX_DISTANCE);
-            float waterStepLen = waterSegment / float(WATER_VOLUME_STEPS);
-            float day = clamp(worldPush.sunDir.w, 0., 1.);
-            float waterJitter = rndf(seed) * 0.8 + 0.1;
-            float3 waterLightDir = normalize(worldPush.lightDir.xyz);
-            float waterPhase = min(hg(dot(rd, waterLightDir), WATER_VOLUME_PHASE_G), 0.35);
-            float3 sigmaT_water = max(waterExt, WATER_ABSORB_FLOOR);
-            float3 waterVolumeTr = float3(1.);
+                        for (int s = 0; s < 3; s++) {
+                            float t = t0 + (float(s) + jitter) * cloudStepLen;
+                            float3 cp = ro + rd * t;
+                            float distFade = 1. - smoothstep(cloudFadeStart, cloudMaxDistance, t);
+                            float rawDensity = cloudDensity(cp);
+                            float density = rawDensity * distFade;
+                            if (density <= 0.001) {
+                                continue;
+                            }
 
-            for (int s = 0; s < WATER_VOLUME_STEPS; s++) {
-                float t = (float(s) + waterJitter) * waterStepLen;
-                if (t >= waterSegment)break;
-                float stepLen = min(waterStepLen, waterSegment - t);
-                float3 p = ro + rd * (t + 0.5 * stepLen);
-                float3 vis = visibility(p, waterLightDir);
-                if (waterWaves && shadowVis.a > 0.01) {
-                    vis *= waterCaustic(p + waterLightDir * shadowVis.a, waterLightDir, shadowVis.a);
+                            float lightT = 0.45;
+                            if (cloudLightUp > 0.) {
+                                float lightProbe = cloudDensity(cp + cloudLightDir * 90.);
+                                float edgeLight = clamp((rawDensity - lightProbe) * 3. + 0.35, 0., 1.);
+                                lightT = lerp(0.20, 1., edgeLight * edgeLight * (3. - 2. * edgeLight));
+                            }
+
+                            float alpha = 1. - exp(-sigmaT_water * density * cloudStepLen);
+                            float viewLight = max(dot(rd, cloudLightDir), 0.);
+                            float phaseFit = lerp(0.07, min(hgPhase * 1.8, 0.55), smoothstep(0., 0.9, viewLight));
+                            float powder = 1. - exp(-density * 2.2);
+                            float rim = smoothstep(0.15, 0.85, lightT) * smoothstep(0.20, 0.95, viewLight);
+                            float3 ambientCloud = lerp(float3(0.010, 0.014, 0.028), float3(0.20, 0.22, 0.24), day);
+                            float3 directCloud = worldPush.lightRadiance.xyz * scatterAlbedo * cloudLightUp
+                                    * (phaseFit * lightT * (0.22 + 0.78 * powder) + rim * 0.030) * day;
+
+                            cloudL += T * alpha * (ambientCloud + directCloud);
+                            T *= 1. - alpha;
+                            if (T < 0.02)break;
+                        }
+
+                        diffuse += throughput * cloudL;
+                        throughput *= T;
+                    }
+                } // 云层结束
+            
+            }else{ // 水下体积光
+                        
+                #define WATER_VOLUME_MAX_DISTANCE 64.
+                #define WATER_VOLUME_STEPS 8
+                #define WATER_VOLUME_SCATTER 0.08
+                #define WATER_VOLUME_PHASE_G 0.45
+                #define WATER_VOLUME_INTENSITY 0.5
+
+                float waterSegment = payload.hitT >= 0. ? payload.hitT : WATER_VOLUME_MAX_DISTANCE;
+                waterSegment = min(waterSegment, WATER_VOLUME_MAX_DISTANCE);
+                float waterStepLen = waterSegment / float(WATER_VOLUME_STEPS);
+                float day = clamp(worldPush.sunDir.w, 0., 1.);
+                float waterJitter = rndf(seed) * 0.8 + 0.1;
+                float3 waterLightDir = normalize(worldPush.lightDir.xyz);
+                float waterPhase = min(hg(dot(rd, waterLightDir), WATER_VOLUME_PHASE_G), 0.35);
+                float3 sigmaT_water = max(waterExt, WATER_ABSORB_FLOOR);
+                float3 waterVolumeTr = float3(1.);
+
+                for (int s = 0; s < WATER_VOLUME_STEPS; s++) {
+                    float t = (float(s) + waterJitter) * waterStepLen;
+                    if (t >= waterSegment)break;
+                    float stepLen = min(waterStepLen, waterSegment - t);
+                    float3 p = ro + rd * (t + 0.5 * stepLen);
+                    float3 vis = visibility(p, waterLightDir);
+                    if (waterWaves && shadowVis.a > 0.01) {
+                        vis *= waterCaustic(p + waterLightDir * shadowVis.a, waterLightDir, shadowVis.a);
+                    }
+                    float3 stepScatter = clamp(worldPush.waterParams.xyz, 0.15, 1.) * WATER_VOLUME_SCATTER * waterPhase * (1. - exp(-sigmaT_water * stepLen));
+                    diffuse += throughput * waterVolumeTr * stepScatter * worldPush.lightRadiance.xyz * vis * day * WATER_VOLUME_INTENSITY;
+                    waterVolumeTr *= exp(-sigmaT_water * stepLen);
                 }
-                float3 stepScatter = clamp(worldPush.waterParams.xyz, 0.15, 1.) * WATER_VOLUME_SCATTER * waterPhase * (1. - exp(-sigmaT_water * stepLen));
-                diffuse += throughput * waterVolumeTr * stepScatter * worldPush.lightRadiance.xyz * vis * day * WATER_VOLUME_INTENSITY;
-                waterVolumeTr *= exp(-sigmaT_water * stepLen);
+
+                float3 waterDayAmbient = (worldPush.waterParams.xyz + float3(0.02, 0.10, 0.14)) * WATER_DAY_AMBIENT_SCALE;
+                float3 waterFogColor = lerp(WATER_NIGHT_AMBIENT, waterDayAmbient, day);
+                diffuse += throughput * waterFogColor * (float3(1.) - waterVolumeTr);
+                throughput *= waterVolumeTr;
             }
-
-            float3 waterDayAmbient = (worldPush.waterParams.xyz + float3(0.02, 0.10, 0.14)) * WATER_DAY_AMBIENT_SCALE;
-            float3 waterFogColor = lerp(WATER_NIGHT_AMBIENT, waterDayAmbient, day);
-            diffuse += throughput * waterFogColor * (float3(1.) - waterVolumeTr);
-            throughput *= waterVolumeTr;
         }
 
         // 未命中几何体：累积 miss shader 给出的天空，并结束当前路径。
@@ -918,23 +933,23 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             // ═══════════════════════════════════════════════════
             // 人工光源（点光源）直接光照 + 阴影
             // ═══════════════════════════════════════════════════
+            // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
+            float3 lightooff = 0.5 - hitPos + sampleCubeSurface(seed)*0.7;
             for (int li = 0; li < pc.lightCount; li++) {
-                PointLight light = loadPointLight(pc.lightBufferAddr, li);
+                PointLight pointLight = loadPointLight(pc.lightBufferAddr, li);
                 
-                // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
-                float3 samplePoint = light.position + sampleCubeSurface(seed)*0.7;
-                float3 toLight = samplePoint - hitPos;
-                float dist = length(toLight);
+                float3 toPointLight = float3(pointLight.position) + lightooff;
+                float pointDist = length(toPointLight);
 
-                float strength = exp(-dist) * light.L;
-                if(strength < 0.01)continue;
+                float pointStrength = exp(-pointDist);
+                if (pointStrength < 0.01) continue;
 
-                float3 pointLightDir = toLight / dist;
+                float3 pointLightDir = toPointLight / pointDist;
 
                 float pointNdl = dot(n, pointLightDir);
                 if (pointNdl <= 0.) continue;
 
-                float3 pointVis = visibility_L(p, pointLightDir, dist - 0.52);
+                float3 pointVis = visibility_L(p, pointLightDir, max(pointDist - 0.49, 0.0));
                 if (max(pointVis.r, max(pointVis.g, pointVis.b)) <= 0.01) continue;
                 
                 
@@ -951,7 +966,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
                 }
                 
-                diffuse += throughput * pointBrdf * pointNdl * pointVis * strength * light.color;
+                diffuse += pointNdl * pointStrength * throughput * pointBrdf * pointVis * pointLight.color;
             }
             // ═══════════════════════════════════════════════════
 

@@ -73,7 +73,7 @@ void main() {
     if (pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec4 source = imageLoad(inputImage, pixel);
-    vec3 bloom = bilinearSample2(pixel, size, pixel).rgb*0.5 + bilinearSample4(pixel, size, pixel / 2)*0.3 + bilinearSample6(pixel, size, pixel / 4)*0.2;
+    vec3 bloom = bilinearSample2(pixel, size, pixel).rgb*0.25 + bilinearSample4(pixel, size, pixel / 2)*0.15 + bilinearSample6(pixel, size, pixel / 4)*0.1;
 
     imageStore(outputImage, pixel, vec4(source.rgb + bloom, source.a));
 }
