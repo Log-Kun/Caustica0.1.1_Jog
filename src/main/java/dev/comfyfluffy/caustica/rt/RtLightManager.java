@@ -83,8 +83,8 @@ public class RtLightManager {
 
         int nowh = frameCounter - 16;
         lights.removeIf(element -> element.y == centre.getY() + nowh // 移除这一层的信息，以进行更新
-                || element.y < centre.getY() - 33 // 后面防止玩家上下平移时列表爆炸
-                || element.y > centre.getY() + 33);
+                || element.y < centre.getY() - 16 // 后面防止玩家上下平移时列表爆炸
+                || element.y > centre.getY() + 15);
 
         for (BlockPos pos : BlockPos.betweenClosed(centre.offset(32, nowh, 32), centre.offset(-32, nowh, -32))) { // 范围内扫描 冒号遍历是语法糖
             BlockState state = level.getBlockState(pos); // level 类里 getBlockState 方法返回方块状态

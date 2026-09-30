@@ -644,7 +644,7 @@ public final class CausticaConfig {
 
         /** DLSS Frame Generation. Default off; gated additionally by hardware/driver availability. */
         public static final class Fg {
-            public static final BooleanSetting ENABLED = bool("caustica.rt.fg", "frame-generation.enabled", false);
+            public static final BooleanSetting ENABLED = bool("caustica.rt.fg", "frame-generation.enabled", true);
             public static final IntSetting MULTI_FRAME_COUNT =
                     intAtLeast("caustica.rt.fg.multiFrameCount", "frame-generation.multi-frame-count", 1, 1);
 
