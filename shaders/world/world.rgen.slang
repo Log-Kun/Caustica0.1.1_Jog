@@ -16,6 +16,11 @@ import world_common;
 [[vk::binding(7, 0)]] [format("rgba16f")] RWTexture2D<float4> gSpecAlbedo;
 [[vk::binding(8, 0)]] [format("rg16f")]   RWTexture2D<float2> gSpecMotion;
 
+//这里用描述符集，有硬件插值等
+[[vk::binding(9, 0)]] SamplerState noiseSampler; //对应Java侧的 VK_DESCRIPTOR_TYPE_SAMPLER
+[[vk::binding(10, 0)]] Texture3D<float> CloudnoiseTex3D; //这里名字无所谓，前面的地方才是和Java对接的接口， RtComposite.bindWorldTextures() 中用 RtPipeline.setNoiseImage()  绑定了这个纹理到 binding 10
+[[vk::binding(11, 0)]] Texture3D<float2> WaternoiseTex3D;
+
 // 每帧推送数据：相机、太阳、水体和材质开关等全局状态。
 static WorldPush worldPush;
 
@@ -83,95 +88,22 @@ static float3 gv_motionObjDisp;
 #define RAY_CONE_DIFFUSE_SPREAD 0.25
 #define RAY_CONE_GLOSSY_SPREAD_SCALE 0.35
 
-// 简化的三维梯度噪声，供体积云密度场使用。
-float hash13(float3 p3) {
-    p3 = frac(p3 * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return frac((p3.x + p3.y) * p3.z);
-}
-
-float3 grad3(float3 p) {
-    float h = hash13(p);
-    return normalize(frac(h * float3(17.13, 59.47, 15.23)) * 2. - 1.);
-}
-
-float noise3(float3 x) {
-    float3 i = floor(x);
-    float3 f = frac(x);
-    float3 u = f * f * f * (f * (f * 6. - 15.) + 10.);
-    float n000 = dot(grad3(i + float3(0.)), f - float3(0.));
-    float n100 = dot(grad3(i + float3(1., 0., 0.)), f - float3(1., 0., 0.));
-    float n010 = dot(grad3(i + float3(0., 1., 0.)), f - float3(0., 1., 0.));
-    float n110 = dot(grad3(i + float3(1., 1., 0.)), f - float3(1., 1., 0.));
-    float n001 = dot(grad3(i + float3(0., 0., 1.)), f - float3(0., 0., 1.));
-    float n101 = dot(grad3(i + float3(1., 0., 1.)), f - float3(1., 0., 1.));
-    float n011 = dot(grad3(i + float3(0., 1., 1.)), f - float3(0., 1., 1.));
-    float n111 = dot(grad3(i + float3(1., 1., 1.)), f - float3(1., 1., 1.));
-    float nx00 = lerp(n000, n100, u.x);
-    float nx10 = lerp(n010, n110, u.x);
-    float nx01 = lerp(n001, n101, u.x);
-    float nx11 = lerp(n011, n111, u.x);
-    return clamp(0.5 + lerp(lerp(nx00, nx10, u.y), lerp(nx01, nx11, u.y), u.z) * 0.85, 0., 1.);
-}
-
-// 体积云密度：先做高度包络，再用3D旋转分形噪声生成云体轮廓。
+// 体积云密度
 float cloudDensity(float3 p) {
     float worldY = p.y + worldPush.waterAnchor.z;
-    float height = smoothstep(195., 238., worldY) * (1. - smoothstep(382., 430., worldY));
-    float3 wp = float3((p.x + worldPush.waterAnchor.x) * 2., worldY, (p.z + worldPush.waterAnchor.y) * 2.);
-    
-    float shape = 0.;
-    float amp = 0.58;
-    float norm = 0.;
-    float3 fp = ( wp + worldPush.waterParams.w * float3(2.1, 0.07, -1.15) ) * float3(0.0023, 0.0042, 0.0023); //worldPush.waterParams.w 是时间，控制云体的整体移动
-    float3x3 octaveRot = float3x3(
-             0.78,  0.16, -0.60,
-            -0.10,  0.98,  0.18,
-             0.62, -0.08,  0.78);
-    for (int i = 0; i < 3; i++) {
-        shape += noise3(fp) * amp;
-        norm += amp;
-        fp = mul(octaveRot, fp) * 6.17 + float3(19.1, 7.7, 31.3);
-        amp *= 0.5;
-    }
-    shape /= norm;
-
-    return smoothstep(0.6, 0.65, shape + height * 0.1) * height * 0.24;
+    float3 fp;
+    fp.xz = p.xz * 0.002;
+    fp.y = (worldY - 195.0) / (430.0 - 195.0);
+    float shape = CloudnoiseTex3D.SampleLevel(noiseSampler, fp, 0.0)*2.-1.;
+    return clamp(shape, 0., 1.) * smoothstep(195., 200., worldY) * smoothstep(430., 400., worldY);
 }
 
-// 水面高度场和法线：几何仍是平面，只扰动着色法线。
-float WH(float2 position, float t) {
-    float wavePhaseShift = length(position) * 0.1;
-    float iter = 0.;
-    float frequency = 0.4;
-    float timeMultiplier = 2.;
-    float weight = 1.;
-    float sumOfValues = 0.;
-    float sumOfWeights = 0.;
-    for (int i = 0; i < 8; i++) {
-        float2 dir = float2(sin(iter), cos(iter));
-        float x = dot(dir, position) * frequency + t * timeMultiplier + wavePhaseShift;
-        float wave = exp(sin(x) - 1.);
-        position += dir * (-wave * cos(x)) * weight;
-        sumOfValues += wave * weight;
-        sumOfWeights += weight;
-        weight *= 0.6;
-        frequency *= 1.6;
-        timeMultiplier *= -1.07;
-        iter += 1232.399963;
-    }
-    return sumOfValues / sumOfWeights - 0.5;
-}
-
-float3 get_water_normal(float3 nGeo, float2 worldXZ, float t) {
-    float eps = 0.05;
-    float hL = WH(worldXZ - float2(eps, 0.), t);
-    float hR = WH(worldXZ + float2(eps, 0.), t);
-    float hD = WH(worldXZ - float2(0., eps), t);
-    float hU = WH(worldXZ + float2(0., eps), t);
-    float2 grad = float2(hR - hL, hU - hD) / (2. * eps);
-    float3 up = normalize(float3(-grad.x, 1., -grad.y));
-    return nGeo.y >= 0. ? up : -up;
+// 生成水面法线
+float3 get_water_normal(float2 worldXZ, float t) {
+    float2 uv_xz = worldXZ / 32.0;
+    float uv_t = fmod(t, 24.0) / 24.0;
+    float2 rg = WaternoiseTex3D.SampleLevel(noiseSampler, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
+    return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
 }
 
 // 根据水体颜色生成逐通道消光：深水通过衰减自然偏蓝/偏绿。
@@ -183,7 +115,7 @@ float3 waterExtinction(float3 tint) {
 #define CAUSTIC_EPS 0.25
 #define CAUSTIC_MAX 6.
 float2 causticLanding(float2 xz, float t, float3 inc, float h) {
-    float3 nw = get_water_normal(float3(0., 1., 0.), xz, t);
+    float3 nw = get_water_normal(xz, t);
     float3 rdw = refract(inc, nw, 1. / WATER_IOR);
     return xz + rdw.xz * (h / -rdw.y);
 }
@@ -535,7 +467,7 @@ struct PointLight {
     float3 color;
 };
 
-//从内存地址加载光源坐标和亮度
+//从内存地址加载光源坐标和亮度 BDA（Buffer Device Address）模式，最快捷直观
 PointLight loadPointLight(uint64_t lightAddr, int index) {
     lightAddr += index * 32;// 每个光源占 32 字节
     PointLight light;
@@ -605,7 +537,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
                     float t = 0.;
                     while (t < segmentLength) { //开启体积光
-                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.25 + 0.4) * (1.+t)
+                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.25 + 0.4) * (1. + t * 2.5)
                         float stepLen = min(volumeStepLen, segmentLength - t);
                         float3 volumePos = ro + rd * (t + 0.5 * stepLen);
                         float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
@@ -614,13 +546,14 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                             float3 volumeLightDir = normalize(worldPush.lightDir.xyz);
                             #define volumeSunPhase hg(dot(volumeLightDir, rd), VOLUME_PHASE_G)
                             #define volumeSunTransmittance exp(-sigmaT * VOLUME_LIGHT_DISTANCE)
-                            diffuse += viewTransmittance
-                                    * volumeSunPhase
-                                    * volumeSunTransmittance
-                                    * throughput
-                                    * segmentScatter
-                                    * worldPush.lightRadiance.xyz
-                                    * visibility(volumePos, volumeLightDir);
+                            float volumeStrength = viewTransmittance * volumeSunPhase * volumeSunTransmittance;
+                            if (volumeStrength > 0.001){
+                                diffuse += volumeStrength
+                                        * throughput
+                                        * segmentScatter
+                                        * worldPush.lightRadiance.xyz
+                                        * visibility(volumePos, volumeLightDir);
+                            }
                         }
 
                         { //点光源体积光：遍历光源累加 in-scattering 贡献。
@@ -864,7 +797,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
             if (waterWaves) {
                 float2 waveXZ = hitPos.xz + worldPush.waterAnchor.xy + (abs(n.y) < 0.5 ? hitPos.y : 0.);
-                n = get_water_normal(n, waveXZ, worldPush.waterParams.w);
+                n = get_water_normal(waveXZ, worldPush.waterParams.w);
             }
             waterExt = waterExtinction(payload.albedo);
             float cosI = clamp(dot(-rd, n), 0., 1.);

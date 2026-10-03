@@ -87,18 +87,17 @@ public final class RtPipeline {
     private final int hitGroupCount;
     private final int pushConstantSize;
     private final int pushConstantStages;
-    private final int firstExtraBinding;
+    private static final int firstExtraBinding = 3;   //从3开始是额外的存储图像绑定，0是TLAS，1是输出图像，2是方块图集
     // Optional second descriptor set (set 1) holding entity albedo and canonical material-page arrays.
     // Only entity albedo is update-after-bind: its RenderType→slot registry is append-only. Material
     // pages are populated once at the resource-epoch boundary. 0 when created without bindless textures.
     private final long bindlessLayout;
     private final long bindlessPool;
     private final long bindlessSet;
-    private final int skyAtlasBinding;
     private boolean destroyed;
 
-    private RtPipeline(RtContext ctx, long dsl, long pool, long[] sets, long layout, long pipeline, RtBuffer sbt, long stride, int missCount, int hitGroupCount, int pushConstantSize, int pushConstantStages, int firstExtraBinding,
-                       long bindlessLayout, long bindlessPool, long bindlessSet, int skyAtlasBinding) {
+    private RtPipeline(RtContext ctx, long dsl, long pool, long[] sets, long layout, long pipeline, RtBuffer sbt, long stride, int missCount, int hitGroupCount, int pushConstantSize, int pushConstantStages,
+                       long bindlessLayout, long bindlessPool, long bindlessSet) {
         this.ctx = ctx;
         this.descriptorSetLayout = dsl;
         this.descriptorPool = pool;
@@ -112,11 +111,9 @@ public final class RtPipeline {
         this.hitGroupCount = hitGroupCount;
         this.pushConstantSize = pushConstantSize;
         this.pushConstantStages = pushConstantStages;
-        this.firstExtraBinding = firstExtraBinding;
         this.bindlessLayout = bindlessLayout;
         this.bindlessPool = bindlessPool;
         this.bindlessSet = bindlessSet;
-        this.skyAtlasBinding = skyAtlasBinding;
     }
 
     /**
@@ -126,14 +123,14 @@ public final class RtPipeline {
      * adds that many raygen-visible storage images at bindings 3.. (the DLSS-RR guide buffers);
      * write them with {@link #setExtraStorageImage}.
      */
-    public static RtPipeline create(RtContext ctx, String rgen, String[] rmiss, String rchit, String rahit, int pushConstantSize, boolean withBlockAlbedoAtlas, int extraStorageImages, int bindlessTextures, boolean skyAtlas) {
+    public static RtPipeline create(RtContext ctx, String rgen, String[] rmiss, String rchit, String rahit, int pushConstantSize, int bindlessTextures) {
         VkDevice vk = ctx.vk();
         boolean hasAhit = rahit != null;
         String label = "world RT pipeline";
         if (bindlessTextures > 0) {
             long requiredCombinedSamplers = Math.addExact(
                     Math.multiplyExact((long) bindlessTextures, BINDLESS_BINDINGS),
-                    withBlockAlbedoAtlas ? 1L : 0L);
+                    1L);
             long deviceLimit = ctx.updateAfterBindCombinedImageSamplerLimit();
             if (requiredCombinedSamplers > deviceLimit) {
                 throw new UnsupportedOperationException("Configured bindless texture capacity " + bindlessTextures
@@ -142,105 +139,114 @@ public final class RtPipeline {
             }
         }
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            int firstExtraBinding = withBlockAlbedoAtlas ? 3 : 2;
-            int materialBase = firstExtraBinding + extraStorageImages;
-            // Sky rewrite: the vanilla celestials atlas (sun + moon phases), sampled by world.rmiss to
-            // draw the sun/moon discs. Canonical material pages live in the bindless set, not set 0.
-            int skyBinding = skyAtlas ? materialBase : -1;
-            int skySamplers = skyAtlas ? 1 : 0;
-            int bindingCount = firstExtraBinding + extraStorageImages + skySamplers;
-            VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(bindingCount, stack);
-            binds.get(0).binding(0).descriptorType(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
-                    .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-            binds.get(1).binding(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-                    .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-            if (withBlockAlbedoAtlas) {
-                int atlasStages = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | (hasAhit ? VK_SHADER_STAGE_ANY_HIT_BIT_KHR : 0);
-                binds.get(2).binding(2).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-                        .descriptorCount(1).stageFlags(atlasStages);
-            }
-            for (int e = 0; e < extraStorageImages; e++) {
-                binds.get(firstExtraBinding + e).binding(firstExtraBinding + e).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-                        .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-            }
-            if (skyAtlas) {
-                binds.get(skyBinding).binding(skyBinding).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-                        .descriptorCount(1).stageFlags(VK_SHADER_STAGE_MISS_BIT_KHR);
-            }
-            VkDescriptorSetLayoutCreateInfo dslci = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType$Default().pBindings(binds);
-            LongBuffer p = stack.mallocLong(1);
-            check(VK10.vkCreateDescriptorSetLayout(vk, dslci, null, p), "vkCreateDescriptorSetLayout");
-            long dsl = p.get(0);
-            RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, dsl, label + " descriptor set layout");
 
-            int combinedSamplers = (withBlockAlbedoAtlas ? 1 : 0) + skySamplers;
-            int poolSizeCount = 2 + (combinedSamplers > 0 ? 1 : 0);
-            VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(poolSizeCount, stack);
-            poolSizes.get(0).type(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR).descriptorCount(RING);
-            // output image (binding 1) + the extra guide images share the storage-image type.
-            poolSizes.get(1).type(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE).descriptorCount(RING * (1 + extraStorageImages));
-            if (combinedSamplers > 0) {
-                poolSizes.get(2).type(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(RING * combinedSamplers);
-            }
-            VkDescriptorPoolCreateInfo dpci = VkDescriptorPoolCreateInfo.calloc(stack).sType$Default().maxSets(RING).pPoolSizes(poolSizes);
-            check(VK10.vkCreateDescriptorPool(vk, dpci, null, p), "vkCreateDescriptorPool");
-            long pool = p.get(0);
-            RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_POOL, pool, label + " descriptor pool");
-            LongBuffer layouts = stack.mallocLong(RING);
-            for (int i = 0; i < RING; i++) {
-                layouts.put(i, dsl);
-            }
-            VkDescriptorSetAllocateInfo dsai = VkDescriptorSetAllocateInfo.calloc(stack).sType$Default()
-                    .descriptorPool(pool).pSetLayouts(layouts);
-            LongBuffer pSet = stack.mallocLong(RING);
-            check(VK10.vkAllocateDescriptorSets(vk, dsai, pSet), "vkAllocateDescriptorSets");
-            long[] sets = new long[RING];
-            pSet.get(sets);
-            for (int i = 0; i < RING; i++) {
-                RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_SET, sets[i], label + " descriptor set " + i);
-            }
+            LongBuffer p = stack.mallocLong(1); //在内存上临时创建1个long，用于后续从VK10里薅信息
 
-            // Optional bindless set (set 1): entity albedo plus canonical material page arrays.
+            LongBuffer layouts = stack.mallocLong(RING); //获取布局句柄！
+                {
+                    VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(12, stack); //索引0-11，共12个绑定
+                        binds.get(0).binding(0).descriptorType(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(1).binding(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(2).binding(2).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | (hasAhit ? VK_SHADER_STAGE_ANY_HIT_BIT_KHR : 0));
+                        binds.get(3).binding(3).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(4).binding(4).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(5).binding(5).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(6).binding(6).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(7).binding(7).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(8).binding(8).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(9).binding(9).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLER) //3D采样器
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(10).binding(10).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //云噪声纹理
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(11).binding(11).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //水面噪声纹理
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+
+                    
+                        { //往pLayout里存布局句柄！
+                            VkDescriptorSetLayoutCreateInfo dslci = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType$Default().pBindings(binds); //创建布局句柄
+                            check(VK10.vkCreateDescriptorSetLayout(vk, dslci, null, p), "vkCreateDescriptorSetLayout"); //写入p
+                        }
+                    
+                    //往layouts里存全部的布局句柄！
+                    long dsl = p.get(0); //拿到pLayout里的布局句柄
+                    for (int i = 0; i < RING; i++) { //为RING个描述符集全部分配布局句柄
+                        layouts.put(i, dsl);
+                    }
+                }
+
+
+            long pool; //获取池句柄！
+                {
+                    VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(5, stack); //总共有5个
+                        poolSizes.get(0).type(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR).descriptorCount(RING);  //加速结构
+                        poolSizes.get(1).type(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE).descriptorCount(RING * 7);      //输出图像，outImage到gSpecMotion共7个，在rgen里
+                        poolSizes.get(2).type(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(RING); //方块图集
+                        poolSizes.get(3).type(VK10.VK_DESCRIPTOR_TYPE_SAMPLER).descriptorCount(RING);                //噪声采样器
+                        poolSizes.get(4).type(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).descriptorCount(RING * 2);          //噪声纹理
+
+                    LongBuffer pPool = stack.mallocLong(1); //在内存上临时创建1个long，用于存句柄
+                        { //往pPool里存池句柄！
+                            VkDescriptorPoolCreateInfo dpci = VkDescriptorPoolCreateInfo.calloc(stack).sType$Default().maxSets(RING).pPoolSizes(poolSizes); //创建池句柄
+                            check(VK10.vkCreateDescriptorPool(vk, dpci, null, pPool), "vkCreateDescriptorPool"); //写入pPool
+                        }
+                    
+                    //往pool里存全部的池句柄！
+                    pool = pPool.get(0); //拿到pPool里的池句柄！所有的描述符集都从这个池里分配，不需要RING个池
+                }
+
+
+            long[] sets = new long[RING]; //获取描述符集！ 描述符集依赖布局句柄和池句柄，所以最后获取
+                {
+                    LongBuffer pSets = stack.mallocLong(RING); //长度不一样，不能用原来的p薅信息了。pSets为了承接VK10的输出，必须在原生内存上创建。sets是java堆上的数组，由Java类（this.descriptorSets）决定该变量是否存活，方便后续使用
+                    VkDescriptorSetAllocateInfo dsai = VkDescriptorSetAllocateInfo.calloc(stack).sType$Default().descriptorPool(pool).pSetLayouts(layouts);
+                    check(VK10.vkAllocateDescriptorSets(vk, dsai, pSets), "vkAllocateDescriptorSets"); //写入pSets
+                    pSets.get(sets); //sets[i] = pSets.get(i); 拷贝
+                }
+
+
             long bindlessLayout = 0L, bindlessPool = 0L, bindlessSet = 0L;
             if (bindlessTextures > 0) {
-                // Entity albedo and canonical material pages have independent index spaces. All arrays
-                // use the configured capacity here; material pages occupy compact indices from zero.
                 int nb = BINDLESS_BINDINGS;
                 VkDescriptorSetLayoutBinding.Buffer bl = VkDescriptorSetLayoutBinding.calloc(nb, stack);
                 java.nio.IntBuffer bindFlags = stack.mallocInt(nb);
-                for (int b = 0; b < nb; b++) {
+                for (int i = 0; i < nb; i++) {
                     int stages = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-                    if (b == ENTITY_ALBEDO_BINDING && hasAhit) stages |= VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-                    bl.get(b).binding(b).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-                            .descriptorCount(bindlessTextures).stageFlags(stages);
+                    if (i == ENTITY_ALBEDO_BINDING && hasAhit) stages |= VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+                    bl.get(i).binding(i).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(bindlessTextures).stageFlags(stages);
                     int flags = VK12.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-                    if (b == ENTITY_ALBEDO_BINDING) flags |= VK12.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-                    bindFlags.put(b, flags);
+                    if (i == ENTITY_ALBEDO_BINDING) flags |= VK12.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+                    bindFlags.put(i, flags);
                 }
-                VkDescriptorSetLayoutBindingFlagsCreateInfo bf = VkDescriptorSetLayoutBindingFlagsCreateInfo.calloc(stack).sType$Default()
-                        .pBindingFlags(bindFlags);
-                VkDescriptorSetLayoutCreateInfo bdslci = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType$Default()
-                        .pNext(bf.address()).flags(VK12.VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT).pBindings(bl);
+                VkDescriptorSetLayoutBindingFlagsCreateInfo bf = VkDescriptorSetLayoutBindingFlagsCreateInfo.calloc(stack).sType$Default().pBindingFlags(bindFlags);
+                VkDescriptorSetLayoutCreateInfo bdslci = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType$Default().pNext(bf.address()).flags(VK12.VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT).pBindings(bl);
                 check(VK10.vkCreateDescriptorSetLayout(vk, bdslci, null, p), "vkCreateDescriptorSetLayout(bindless)");
                 bindlessLayout = p.get(0);
                 RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, bindlessLayout, label + " bindless descriptor set layout");
+
                 VkDescriptorPoolSize.Buffer bps = VkDescriptorPoolSize.calloc(1, stack);
                 bps.get(0).type(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(bindlessTextures * nb);
-                VkDescriptorPoolCreateInfo bdpci = VkDescriptorPoolCreateInfo.calloc(stack).sType$Default()
-                        .flags(VK12.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT).maxSets(1).pPoolSizes(bps);
+                VkDescriptorPoolCreateInfo bdpci = VkDescriptorPoolCreateInfo.calloc(stack).sType$Default().flags(VK12.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT).maxSets(1).pPoolSizes(bps);
                 check(VK10.vkCreateDescriptorPool(vk, bdpci, null, p), "vkCreateDescriptorPool(bindless)");
                 bindlessPool = p.get(0);
                 RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_POOL, bindlessPool, label + " bindless descriptor pool");
-                VkDescriptorSetAllocateInfo bdsai = VkDescriptorSetAllocateInfo.calloc(stack).sType$Default()
-                        .descriptorPool(bindlessPool).pSetLayouts(stack.longs(bindlessLayout));
-                LongBuffer bpSet = stack.mallocLong(1);
-                check(VK10.vkAllocateDescriptorSets(vk, bdsai, bpSet), "vkAllocateDescriptorSets(bindless)");
-                bindlessSet = bpSet.get(0);
+
+                VkDescriptorSetAllocateInfo bdsai = VkDescriptorSetAllocateInfo.calloc(stack).sType$Default().descriptorPool(bindlessPool).pSetLayouts(stack.longs(bindlessLayout));
+                check(VK10.vkAllocateDescriptorSets(vk, bdsai, p), "vkAllocateDescriptorSets(bindless)");
+                bindlessSet = p.get(0);
                 RtDebugLabels.name(ctx, VK10.VK_OBJECT_TYPE_DESCRIPTOR_SET, bindlessSet, label + " bindless descriptor set");
             }
 
             VkPipelineLayoutCreateInfo plci = VkPipelineLayoutCreateInfo.calloc(stack).sType$Default()
-                    .pSetLayouts(bindlessTextures > 0 ? stack.longs(dsl, bindlessLayout) : stack.longs(dsl));
+                    .pSetLayouts(bindlessTextures > 0 ? stack.longs(layouts.get(0), bindlessLayout) : stack.longs(layouts.get(0))); //layouts.get(0)就是dsl
             // Push constants are visible to raygen + closest-hit + miss (+ any-hit when present).
             // vkCmdPushConstants must be called with exactly these stages, so store them for trace().
             // Miss reads pc for the dynamic sky; widening the stage mask is the whole cost — no gotcha #3.
@@ -344,8 +350,8 @@ public final class RtPipeline {
                 MemoryUtil.memCopy(MemoryUtil.memAddress(handles) + (long) g * handleSize, sbt.mapped + g * stride, handleSize);
             }
             sbt.flush();
-            return new RtPipeline(ctx, dsl, pool, sets, layout, pipeline, sbt, stride, missCount, hitGroupCount, pushConstantSize, pcStages, firstExtraBinding,
-                    bindlessLayout, bindlessPool, bindlessSet, skyBinding);
+            return new RtPipeline(ctx, layouts.get(0), pool, sets, layout, pipeline, sbt, stride, missCount, hitGroupCount, pushConstantSize, pcStages,
+                    bindlessLayout, bindlessPool, bindlessSet);
         }
     }
 
@@ -420,30 +426,77 @@ public final class RtPipeline {
         }
     }
 
-    /** Bind the vanilla celestials atlas (sun + moon phases), sampled by world.rmiss for the discs. */
-    public void setSkyAtlas(long imageView, long sampler) {
-        writeAtlasBinding(skyAtlasBinding, imageView, sampler);
-    }
 
-    public boolean hasSkyAtlas() {
-        return skyAtlasBinding >= 0;
-    }
 
-    private void writeAtlasBinding(int binding, long imageView, long sampler) {
-        if (binding < 0) {
-            return;
-        }
+
+
+    /** 绑定 3D 采样器到所有 RING 个描述符集。 */
+    public void set3DSampler(long sampler) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);
-            info.get(0).sampler(sampler).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_GENERAL);
-            VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
+            VkDescriptorImageInfo.Buffer samplerInfo = VkDescriptorImageInfo.calloc(1, stack);
+            samplerInfo.get(0).sampler(sampler);
+
+            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
             for (int i = 0; i < RING; i++) {
-                write.get(i).sType$Default().dstSet(descriptorSets[i]).dstBinding(binding)
-                        .descriptorCount(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).pImageInfo(info);
+                writes.get(i).sType$Default()
+                        .dstSet(descriptorSets[i])
+                        .dstBinding(9) //绑定到9号
+                        .dstArrayElement(0)
+                        .descriptorCount(1)
+                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLER) //对应slang侧的 SamplerState
+                        .pImageInfo(samplerInfo);
             }
-            VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
+            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
         }
     }
+
+
+
+    /** 绑定云噪声纹理到所有 RING 个描述符集。 */
+    public void setCloudNoiseImage(long imageView) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack);
+            imageInfo.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
+            for (int i = 0; i < RING; i++) {
+                writes.get(i).sType$Default()
+                        .dstSet(descriptorSets[i])
+                        .dstBinding(10) //绑定到10号
+                        .dstArrayElement(0)
+                        .descriptorCount(1)
+                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
+                        .pImageInfo(imageInfo);
+            }
+            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
+        }
+    }
+
+
+
+    /** 绑定水面噪声纹理到所有 RING 个描述符集。 */
+    public void setWaterNoiseImage(long imageView) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack);
+            imageInfo.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
+            for (int i = 0; i < RING; i++) {
+                writes.get(i).sType$Default()
+                        .dstSet(descriptorSets[i])
+                        .dstBinding(11) //绑定到11号
+                        .dstArrayElement(0)
+                        .descriptorCount(1)
+                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
+                        .pImageInfo(imageInfo);
+            }
+            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
+        }
+    }
+
+
+
+
 
     /** Append or initialize one entity-albedo slot. Existing slots never change while frames are in flight. */
     public void setEntityAlbedoTexture(int slot, long imageView, long sampler) {

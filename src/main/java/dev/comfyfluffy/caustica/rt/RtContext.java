@@ -17,6 +17,7 @@ import org.lwjgl.vulkan.VK11;
 import org.lwjgl.vulkan.VK12;
 import org.lwjgl.vulkan.VkBufferCreateInfo;
 import org.lwjgl.vulkan.VkBufferDeviceAddressInfo;
+import org.lwjgl.vulkan.VkBufferImageCopy;
 import org.lwjgl.vulkan.VkCommandBuffer;
 import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
 import org.lwjgl.vulkan.VkCommandBufferBeginInfo;
@@ -422,6 +423,128 @@ public final class RtContext {
             }
         }
     }
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+    /*
+    * 创建 3D 纹理（R8_UNORM，SAMPLED + TRANSFER_DST），仿写createStorageImage，
+    * 初始布局为 UNDEFINED，等待上传数据。
+    */
+    public RtImage createTexture3D(int width, int height, int depth, int format, String label) {
+        int usage = VK10.VK_IMAGE_USAGE_SAMPLED_BIT | VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        long image, allocation, view;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkImageCreateInfo ici = VkImageCreateInfo.calloc(stack).sType$Default()
+                    .imageType(VK10.VK_IMAGE_TYPE_3D)          // ← 改成 3D
+                    .format(format)
+                    .mipLevels(1).arrayLayers(1)
+                    .samples(VK10.VK_SAMPLE_COUNT_1_BIT)
+                    .tiling(VK10.VK_IMAGE_TILING_OPTIMAL)
+                    .usage(usage)
+                    .sharingMode(VK10.VK_SHARING_MODE_EXCLUSIVE)
+                    .initialLayout(VK10.VK_IMAGE_LAYOUT_UNDEFINED);
+            ici.extent().set(width, height, depth);            // ← 三个维度
+            
+            VmaAllocationCreateInfo iaci = VmaAllocationCreateInfo.calloc(stack)
+                    .usage(Vma.VMA_MEMORY_USAGE_AUTO);
+            LongBuffer pImage = stack.mallocLong(1);
+            PointerBuffer pAlloc = stack.mallocPointer(1);
+            check(Vma.vmaCreateImage(vma, ici, iaci, pImage, pAlloc, null), "vmaCreateImage(3D)");
+            image = pImage.get(0);
+            allocation = pAlloc.get(0);
+            RtDebugLabels.nameImage(this, image, label);
+            
+            VkImageViewCreateInfo vci = VkImageViewCreateInfo.calloc(stack).sType$Default()
+                    .image(image)
+                    .viewType(VK10.VK_IMAGE_VIEW_TYPE_3D)      // ← 3D 视图
+                    .format(format);
+            vci.subresourceRange().aspectMask(VK10.VK_IMAGE_ASPECT_COLOR_BIT)
+                    .levelCount(1).layerCount(1);
+            LongBuffer pView = stack.mallocLong(1);
+            check(VK10.vkCreateImageView(vk, vci, null, pView), "vkCreateImageView(3D)");
+            view = pView.get(0);
+            RtDebugLabels.nameImageView(this, view, label + " view");
+        }
+        // 初始布局仍是 UNDEFINED，上传时再 transition
+        return new RtImage(vma, vk, image, allocation, view, width, height);
+    }
+
+    /**
+     * 把 staging buffer 的数据上传到 3D 图像，并 transition 到 SHADER_READ_ONLY_OPTIMAL。
+     */
+    public void uploadTo3DImage(int width, int height, int depth, RtBuffer staging, long image) {
+        submitSync(cmd -> {
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                
+                imageBarrier(cmd, stack, image, VK10.VK_IMAGE_LAYOUT_UNDEFINED, VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL); // 1. UNDEFINED → TRANSFER_DST_OPTIMAL 告诉 GPU"这个图像即将作为拷贝目标使用"
+                
+                // 2. 拷贝******************
+                VkBufferImageCopy.Buffer region = VkBufferImageCopy.calloc(1, stack);
+                region.get(0).bufferOffset(0).bufferRowLength(0).bufferImageHeight(0)
+                        .imageSubresource(s -> s
+                                .aspectMask(VK10.VK_IMAGE_ASPECT_COLOR_BIT)
+                                .mipLevel(0).baseArrayLayer(0).layerCount(1))
+                        .imageOffset(o -> o.set(0, 0, 0))
+                        .imageExtent(e -> e.set(width, height, depth));
+                
+                VK10.vkCmdCopyBufferToImage(cmd, staging.handle, image, VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, region);
+                
+                imageBarrier(cmd, stack, image,VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); // 3. TRANSFER_DST_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
+            }
+        });
+    }
+
+    private static void imageBarrier(VkCommandBuffer cmd, MemoryStack stack, long image, int oldLayout, int newLayout) { //确保先写入再读取
+        VkImageMemoryBarrier.Buffer b = VkImageMemoryBarrier.calloc(1, stack);
+        b.get(0).sType$Default()
+                .oldLayout(oldLayout).newLayout(newLayout)
+                .srcQueueFamilyIndex(VK10.VK_QUEUE_FAMILY_IGNORED)
+                .dstQueueFamilyIndex(VK10.VK_QUEUE_FAMILY_IGNORED)
+                .image(image);
+
+        b.get(0).subresourceRange().aspectMask(VK10.VK_IMAGE_ASPECT_COLOR_BIT)
+                .levelCount(1).layerCount(1);
+
+        int srcStage, dstStage, srcAccess, dstAccess;
+
+        if (oldLayout == VK10.VK_IMAGE_LAYOUT_UNDEFINED
+                && newLayout == VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            srcStage = VK10.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            dstStage = VK10.VK_PIPELINE_STAGE_TRANSFER_BIT;
+            srcAccess = 0;
+            dstAccess = VK10.VK_ACCESS_TRANSFER_WRITE_BIT;
+        } else if (oldLayout == VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                && newLayout == VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            srcStage = VK10.VK_PIPELINE_STAGE_TRANSFER_BIT;
+            dstStage = VK10.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                    | VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            srcAccess = VK10.VK_ACCESS_TRANSFER_WRITE_BIT;
+            dstAccess = VK10.VK_ACCESS_SHADER_READ_BIT;
+        } else {
+            srcStage = VK10.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            dstStage = VK10.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            srcAccess = 0;
+            dstAccess = 0;
+        }
+
+        b.get(0).srcAccessMask(srcAccess);
+        b.get(0).dstAccessMask(dstAccess);
+
+        VK10.vkCmdPipelineBarrier(cmd,
+            srcStage, dstStage, 0,
+            null,        // pMemoryBarriers
+            null,        // pBufferMemoryBarriers
+            b);          // pImageMemoryBarriers
+    }
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
 
     /**
      * A multisampled colour attachment for a raster mask pass that gets dynamic-rendering-resolved into a

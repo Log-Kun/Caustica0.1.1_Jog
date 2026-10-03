@@ -106,7 +106,7 @@ public class RtLightManager {
     private static final int MAX_LIGHTS = 1024;  // 最多支持1024个光源
     public int currentLightCount = 0;  // 当前帧实际有多少个光源
 
-    public void init(RtContext ctx) {
+    public void initLights(RtContext ctx) {
         lightBuffer = ctx.createBuffer(
             (long) MAX_LIGHTS * 32,                   //大小 每个光源占 32 字节
             VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,  // 用途：存储缓冲区

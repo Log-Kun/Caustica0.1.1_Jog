@@ -97,7 +97,8 @@ public final class RtComposite {
     // Real inline push constants (fast constant-bank reads), separate from the WorldPush BDA ring above.
     // Hot addresses/frameIndex and raygen's debugView avoid unnecessary global-memory dereferences;
     // WorldPushConstantsData is generated from the same Slang module and owns this second ABI as well.
-    private static final int GUIDE_COUNT = 6; // RR guide buffers bound at world-pipeline bindings 3..8
+    //private static final int GUIDE_COUNT = 6; // RR guide buffers bound at world-pipeline bindings 3..8
+    //现已内联！
     // Frames a retired per-frame TLAS must outlive before it's freed (> frames-in-flight); matches
     // RtTerrain's deferred-free horizon. The frame TLAS is built + traced this frame, then freed once
     // the composite frame counter has advanced this far past it (so no in-flight frame still reads it).
@@ -235,6 +236,11 @@ public final class RtComposite {
     private RtImage gMotion;
     private RtImage gSpecAlbedo;
     private RtImage gSpecMotion;
+
+    private RtImage CloudnoiseTexture;
+    private RtImage WaternoiseTexture;
+    private long noise3DSampler;
+
     // Display-res RT image the display mapper reads: DLSS-RR writes it (render -> display denoise+upscale), or a
     // linear blit of `output` fills it when RR is off/unavailable (the no-RR reference / fallback).
     private RtImage rrOutput;
@@ -526,9 +532,7 @@ public final class RtComposite {
     private RtPipeline ensureWorld(RtContext ctx) {
         if (worldPipeline == null) {
             bindlessTextureCapacity = RtEntityTextures.maxTextures();
-            worldPipeline = RtPipeline.create(ctx, RtDeviceBringup.worldRaygenShader(),
-                    new String[]{"world.rmiss.spv"}, "world.rchit.spv", "world.rahit.spv",
-                    WorldPushConstantsData.BYTE_SIZE, true, GUIDE_COUNT, bindlessTextureCapacity, true);
+            worldPipeline = RtPipeline.create(ctx, RtDeviceBringup.worldRaygenShader(), new String[]{"world.rmiss.spv"}, "world.rchit.spv", "world.rahit.spv", WorldPushConstantsData.BYTE_SIZE, bindlessTextureCapacity);
             // Per-frame world data lives in this BDA ring; the pipeline pushes its address and hot fields.
             if (pushRing == null) {
                 pushRing = new RtBuffer[PUSH_RING];
@@ -544,7 +548,7 @@ public final class RtComposite {
             bindWorldTextures(ctx);
             reloadRebindRequested = false;
 
-            lightManager.init(ctx); // 初始化光源管理器
+            lightManager.initLights(ctx); // 初始化光源管理器
         }
         // The TLAS is rebuilt and bound per frame in recordFrame since dynamic entity content animates
         // the instance set every frame.
@@ -591,15 +595,22 @@ public final class RtComposite {
         // Sky rewrite: bind the vanilla celestials atlas (sun + moon phases) for world.rmiss. The view
         // handle is stable across frames; the shader only samples it inside the sun/moon discs (sky
         // directions), so the block-atlas fallback is never read if the celestials atlas isn't ready.
+        //现已删除
         long celView = celestialsAtlasView();
-        if (worldPipeline.hasSkyAtlas()) {
-            worldPipeline.setSkyAtlas(celView != 0L ? celView : atlasView, sampler);
-        }
         setCelestialUvAtlas(celView);
         // Atlas UVs and material IDs are one resource epoch. Drop old terrain as a unit rather than
         // incrementally displaying old UVs/IDs against the new atlas/table.
         RtTerrain.requestFullClear();
         materialEpochTraceGate = true;
+
+        if (CloudnoiseTexture == null) {
+            noise3DSampler = Rt3DTextures.create3DSampler(ctx);
+            CloudnoiseTexture = Rt3DTextures.createCloudNoiseTexture(ctx); //返回一个RtImage对象，里面包含了噪声纹理的VkImage和VkImageView
+            WaternoiseTexture = Rt3DTextures.createWaterNoiseTexture(ctx);
+        }
+        worldPipeline.set3DSampler(noise3DSampler); //接线，绑定到9号
+        worldPipeline.setCloudNoiseImage(CloudnoiseTexture.view); //接线，绑定到10号
+        worldPipeline.setWaterNoiseImage(WaternoiseTexture.view); //接线，绑定到11号
     }
 
     private void refreshMaterialBindingsIfNeeded(RtContext ctx) {
