@@ -87,7 +87,6 @@ public final class RtPipeline {
     private final int hitGroupCount;
     private final int pushConstantSize;
     private final int pushConstantStages;
-    private static final int firstExtraBinding = 3;   //从3开始是额外的存储图像绑定，0是TLAS，1是输出图像，2是方块图集
     // Optional second descriptor set (set 1) holding entity albedo and canonical material-page arrays.
     // Only entity albedo is update-after-bind: its RenderType→slot registry is append-only. Material
     // pages are populated once at the resource-epoch boundary. 0 when created without bindless textures.
@@ -398,103 +397,79 @@ public final class RtPipeline {
         }
     }
 
-    /** Write an extra storage image (DLSS-RR guide buffer) into binding {@code firstExtraBinding + slot} across every ring slot. */
-    public void setExtraStorageImage(int slot, long imageView) {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkDescriptorImageInfo.Buffer imgInfo = VkDescriptorImageInfo.calloc(1, stack);
-            imgInfo.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_GENERAL);
-            VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
-            for (int i = 0; i < RING; i++) {
-                write.get(i).sType$Default().dstSet(descriptorSets[i]).dstBinding(firstExtraBinding + slot)
-                        .descriptorCount(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE).pImageInfo(imgInfo);
-            }
-            VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
-        }
-    }
-
     /** Bind the block albedo atlas into every ring slot. */
-    public void setBlockAlbedoAtlas(long imageView, long sampler) {
+    public void setBlockAlbedoAtlas(long sampler, long imageView) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);
             info.get(0).sampler(sampler).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_GENERAL);
             VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
             for (int i = 0; i < RING; i++) {
-                write.get(i).sType$Default().dstSet(descriptorSets[i]).dstBinding(2)
-                        .descriptorCount(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).pImageInfo(info);
+                write.get(i).sType$Default()
+                        .dstSet(descriptorSets[i])
+                        .dstBinding(2)
+                        .descriptorCount(1)
+                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                        .pImageInfo(info);
             }
             VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
         }
     }
 
-
-
-
+    /** Write an extra storage image (DLSS-RR guide buffer) into binding {@code firstExtraBinding + slot} across every ring slot. */
+    public void setExtraStorageImage(long imageView, int binding) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);
+            info.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_GENERAL);
+            VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
+            for (int i = 0; i < RING; i++) {
+                write.get(i).sType$Default()
+                        .dstSet(descriptorSets[i])
+                        .dstBinding(binding) //绑定到指定编号
+                        .descriptorCount(1)
+                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                        .pImageInfo(info);
+            }
+            VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
+        }
+    }
 
     /** 绑定 3D 采样器到所有 RING 个描述符集。 */
-    public void set3DSampler(long sampler) {
+    public void setSampler3D(long sampler, int binding) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkDescriptorImageInfo.Buffer samplerInfo = VkDescriptorImageInfo.calloc(1, stack);
-            samplerInfo.get(0).sampler(sampler);
-
-            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
+            VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);
+            info.get(0).sampler(sampler);
+            VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
             for (int i = 0; i < RING; i++) {
-                writes.get(i).sType$Default()
+                write.get(i).sType$Default()
                         .dstSet(descriptorSets[i])
-                        .dstBinding(9) //绑定到9号
+                        .dstBinding(binding) //绑定到指定编号
                         .dstArrayElement(0)
                         .descriptorCount(1)
                         .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLER) //对应slang侧的 SamplerState
-                        .pImageInfo(samplerInfo);
+                        .pImageInfo(info);
             }
-            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
+            VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
         }
     }
 
-
-
-    /** 绑定云噪声纹理到所有 RING 个描述符集。 */
-    public void setCloudNoiseImage(long imageView) {
+    /** 绑定纹理到所有 RING 个描述符集。 */
+    public void setTexture3D(long imageView, int binding) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack);
-            imageInfo.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
+            VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);
+            info.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkWriteDescriptorSet.Buffer write = VkWriteDescriptorSet.calloc(RING, stack);
             for (int i = 0; i < RING; i++) {
-                writes.get(i).sType$Default()
+                write.get(i).sType$Default()
                         .dstSet(descriptorSets[i])
-                        .dstBinding(10) //绑定到10号
+                        .dstBinding(binding) //绑定到指定编号
                         .dstArrayElement(0)
                         .descriptorCount(1)
                         .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
-                        .pImageInfo(imageInfo);
+                        .pImageInfo(info);
             }
-            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
+            VK10.vkUpdateDescriptorSets(ctx.vk(), write, null);
         }
     }
-
-
-
-    /** 绑定水面噪声纹理到所有 RING 个描述符集。 */
-    public void setWaterNoiseImage(long imageView) {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkDescriptorImageInfo.Buffer imageInfo = VkDescriptorImageInfo.calloc(1, stack);
-            imageInfo.get(0).imageView(imageView).imageLayout(VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-            VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(RING, stack);
-            for (int i = 0; i < RING; i++) {
-                writes.get(i).sType$Default()
-                        .dstSet(descriptorSets[i])
-                        .dstBinding(11) //绑定到11号
-                        .dstArrayElement(0)
-                        .descriptorCount(1)
-                        .descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
-                        .pImageInfo(imageInfo);
-            }
-            VK10.vkUpdateDescriptorSets(ctx.vk(), writes, null);
-        }
-    }
-
-
 
 
 

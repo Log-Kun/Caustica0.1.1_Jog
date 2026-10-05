@@ -433,7 +433,7 @@ public final class RtContext {
     * 创建 3D 纹理（R8_UNORM，SAMPLED + TRANSFER_DST），仿写createStorageImage，
     * 初始布局为 UNDEFINED，等待上传数据。
     */
-    public RtImage createTexture3D(int width, int height, int depth, int format, String label) {
+    public RtImage create1Texture3D(int width, int height, int depth, int format) {
         int usage = VK10.VK_IMAGE_USAGE_SAMPLED_BIT | VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         long image, allocation, view;
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -455,7 +455,6 @@ public final class RtContext {
             check(Vma.vmaCreateImage(vma, ici, iaci, pImage, pAlloc, null), "vmaCreateImage(3D)");
             image = pImage.get(0);
             allocation = pAlloc.get(0);
-            RtDebugLabels.nameImage(this, image, label);
             
             VkImageViewCreateInfo vci = VkImageViewCreateInfo.calloc(stack).sType$Default()
                     .image(image)
@@ -466,7 +465,6 @@ public final class RtContext {
             LongBuffer pView = stack.mallocLong(1);
             check(VK10.vkCreateImageView(vk, vci, null, pView), "vkCreateImageView(3D)");
             view = pView.get(0);
-            RtDebugLabels.nameImageView(this, view, label + " view");
         }
         // 初始布局仍是 UNDEFINED，上传时再 transition
         return new RtImage(vma, vk, image, allocation, view, width, height);
@@ -475,7 +473,7 @@ public final class RtContext {
     /**
      * 把 staging buffer 的数据上传到 3D 图像，并 transition 到 SHADER_READ_ONLY_OPTIMAL。
      */
-    public void uploadTo3DImage(int width, int height, int depth, RtBuffer staging, long image) {
+    public void create2Texture3D(int width, int height, int depth, RtBuffer staging, long image) {
         submitSync(cmd -> {
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 

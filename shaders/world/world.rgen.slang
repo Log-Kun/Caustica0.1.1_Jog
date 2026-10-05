@@ -2,8 +2,6 @@
 // 天空本身由 world.rmiss 计算；这里只负责把 miss 的天空辐射累加到路径中。
 import world_common;
 
-[[vk::push_constant]] WorldPushConstants pc;
-
 // 光追加速结构和输出/引导纹理绑定。
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
 
@@ -21,8 +19,10 @@ import world_common;
 [[vk::binding(10, 0)]] Texture3D<float> CloudnoiseTex3D; //这里名字无所谓，前面的地方才是和Java对接的接口， RtComposite.bindWorldTextures() 中用 RtPipeline.setNoiseImage()  绑定了这个纹理到 binding 10
 [[vk::binding(11, 0)]] Texture3D<float2> WaternoiseTex3D;
 
+[[vk::push_constant]] WorldPushConstants pc; //用pc模式推送常量快
+
 // 每帧推送数据：相机、太阳、水体和材质开关等全局状态。
-static WorldPush worldPush;
+static WorldPush worldPush; //声明空变量，void main()里再赋值，worldPush = ConstPtr<WorldPush>(pc.worldPushAddr)[0];
 
 // 路径与 closest-hit/miss 之间共用的 payload。
 static Payload payload;
@@ -72,10 +72,10 @@ static float3 gv_motionObjDisp;
 // 水体按平滑介电质处理，吸收使用 Beer-Lambert 消光。
 #define WATER_IOR 1.333
 #define WATER_DENSITY 0.05
-#define WATER_ABSORB_FLOOR float3(0.015, 0.010, 0.008)
+#define WATER_ABSORB_FLOOR float3(0.15, 0.1, 0.08)
 
-#define WATER_NIGHT_AMBIENT float3(0.002, 0.006, 0.014)
 #define WATER_DAY_AMBIENT_SCALE 0.055
+#define WATER_NIGHT_AMBIENT_SCALE 0.01
 #define WATER_SUN_REFLECT_STRENGTH 100.
 #define WATER_MOON_REFLECT_STRENGTH 80.
 
@@ -93,9 +93,9 @@ float cloudDensity(float3 p) {
     float worldY = p.y + worldPush.waterAnchor.z;
     float3 fp;
     fp.xz = p.xz * 0.002;
-    fp.y = (worldY - 195.0) / (430.0 - 195.0);
+    fp.y = (worldY - 190.0) / (430.0 - 190.0);
     float shape = CloudnoiseTex3D.SampleLevel(noiseSampler, fp, 0.0)*2.-1.;
-    return clamp(shape, 0., 1.) * smoothstep(195., 200., worldY) * smoothstep(430., 400., worldY);
+    return clamp(shape, 0., 1.) * smoothstep(190., 200., worldY) * smoothstep(430., 400., worldY);
 }
 
 // 生成水面法线
@@ -112,7 +112,7 @@ float3 waterExtinction(float3 tint) {
 }
 
 // 水下焦散：对波面到接收平面的折射映射做有限差分。
-#define CAUSTIC_EPS 0.25
+#define CAUSTIC_EPS 0.01
 #define CAUSTIC_MAX 6.
 float2 causticLanding(float2 xz, float t, float3 inc, float h) {
     float3 nw = get_water_normal(xz, t);
@@ -468,11 +468,26 @@ struct PointLight {
 };
 
 //从内存地址加载光源坐标和亮度 BDA（Buffer Device Address）模式，最快捷直观
-PointLight loadPointLight(uint64_t lightAddr, int index) {
+PointLight loadPointLight(int index) {
+    uint64_t lightAddr = pc.lightBufferAddr;
     lightAddr += index * 32;// 每个光源占 32 字节
     PointLight light;
     light.position = *(int3*)lightAddr; //把 lightAddr 当作 int3 指针，然后读出一个 int3
     light.color = *(float3*)(lightAddr + 16);
+    return light;
+}
+
+
+struct HeadLight {
+    float3 position;
+    float3 color;
+};
+
+HeadLight loadHeadLight() {
+    uint64_t Addr = pc.HandLightBufferAddr;
+    HeadLight light;
+    light.position = *(float3*)Addr; //把Addr看作float3*类型，然后再解引用
+    light.color = *(float3*)(Addr + 16);
     return light;
 }
 
@@ -518,7 +533,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         payload.hitT = -1.;
         PAYLOAD_SET_TRACE_STATE(showCelestial, rayConeWidth, rayConeSpread);
         traceRadianceReordered(bounce == 0 ? CULL_PRIMARY : CULL_SECONDARY, ro, 0., rd);
-        if(bounce == 0) {
+        if(bounce <= 1) {
             if (!inWater){
                 { // 体积光部分 近地薄雾：只处理空气中的一小段，水下衰减交给水体吸收。
                     // 近地体积雾参数，与云层是两套独立积分。
@@ -560,7 +575,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                             // 与日月一样是相位函数散射，但透射率用真实距离（点光源近，固定距离会失真）。
                             float3 lightooff =  0.5 - volumePos + sampleCubeSurface(seed)*0.7;
                             for (int li = 0; li < pc.lightCount; li++) {
-                                PointLight pointLight = loadPointLight(pc.lightBufferAddr, li);
+                                PointLight pointLight = loadPointLight(li);
                                 float3 toPointLight = float3(pointLight.position) + lightooff;
                                 float pointDist = length(toPointLight);
                                 float pointStrength = exp(-pointDist) * viewTransmittance * 50.;
@@ -686,9 +701,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     diffuse += throughput * waterVolumeTr * stepScatter * worldPush.lightRadiance.xyz * vis * day * WATER_VOLUME_INTENSITY;
                     waterVolumeTr *= exp(-sigmaT_water * stepLen);
                 }
-
-                float3 waterDayAmbient = (worldPush.waterParams.xyz + float3(0.02, 0.10, 0.14)) * WATER_DAY_AMBIENT_SCALE;
-                float3 waterFogColor = lerp(WATER_NIGHT_AMBIENT, waterDayAmbient, day);
+                float3 waterFogColor = (worldPush.waterParams.xyz + float3(0.02, 0.10, 0.14)) * lerp(WATER_NIGHT_AMBIENT_SCALE, WATER_DAY_AMBIENT_SCALE, day);
                 diffuse += throughput * waterFogColor * (float3(1.) - waterVolumeTr);
                 throughput *= waterVolumeTr;
             }
@@ -797,7 +810,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
             if (waterWaves) {
                 float2 waveXZ = hitPos.xz + worldPush.waterAnchor.xy + (abs(n.y) < 0.5 ? hitPos.y : 0.);
-                n = get_water_normal(waveXZ, worldPush.waterParams.w);
+                n = get_water_normal(waveXZ, worldPush.waterParams.w) * (n.y < 0. ? -1. : 1.);
             }
             waterExt = waterExtinction(payload.albedo);
             float cosI = clamp(dot(-rd, n), 0., 1.);
@@ -865,27 +878,25 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
             float3 lightooff = 0.5 - hitPos + sampleCubeSurface(seed)*0.7;
             for (int li = 0; li < pc.lightCount; li++) {
-                PointLight pointLight = loadPointLight(pc.lightBufferAddr, li);
+                PointLight PointLight = loadPointLight(li);
 
-                float3 toPointLight = float3(pointLight.position) + lightooff;
-                float pointDist = length(toPointLight);
+                float3 PointLightDir = float3(PointLight.position) + lightooff;
+                float PointLightLength = length(PointLightDir);
+                float PointLightStrength = exp(-PointLightLength);
+                if (PointLightStrength < 0.01) continue;
+                PointLightDir /= PointLightLength;
 
-                float pointStrength = exp(-pointDist);
-                if (pointStrength < 0.01) continue;
-
-                float3 pointLightDir = toPointLight / pointDist;
-
-                float pointNdl = dot(n, pointLightDir);
+                float pointNdl = dot(n, PointLightDir);
                 if (pointNdl <= 0.) continue;
 
-                float3 pointVis = visibility_L(p, pointLightDir, max(pointDist - 0.49, 0.0));
+                float3 pointVis = visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0));
                 if (max(pointVis.r, max(pointVis.g, pointVis.b)) <= 0.01) continue;
                 
                 
                 // 复用和太阳光相同的 BRDF 计算
                 float3 pointBrdf = diffAlb * INV_PI;
                 if (pbr) {
-                    float3 h = normalize(pointLightDir + v);
+                    float3 h = normalize(PointLightDir + v);
                     float ndh = max(0., dot(n, h));
                     float ndv = dot(n, v);
                     float vdh = max(0., dot(v, h));
@@ -895,7 +906,33 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
                 }
                 
-                diffuse += pointNdl * pointStrength * throughput * pointBrdf * pointVis * pointLight.color;
+                diffuse += pointNdl * throughput * PointLightStrength * pointBrdf * pointVis * PointLight.color;
+            }
+
+            // 手持光源
+            HeadLight HeadLightInfo = loadHeadLight();
+            float3 HeadLightDir = HeadLightInfo.position - hitPos;
+            float HeadLightLength = length(HeadLightDir);
+            HeadLightDir /= HeadLightLength;
+
+            float3 HandLightColor = HeadLightInfo.color * exp(-HeadLightLength * 0.4) * throughput * 10.; //payload.hitT 是沿光线的距离，不是以玩家头为原点的坐标系！
+
+            if(HandLightColor.r > 0.0001 || HandLightColor.g > 0.0001 || HandLightColor.b > 0.0001) {
+                // 复用和太阳光相同的 BRDF 计算
+                float pointNdl = dot(n, HeadLightDir);
+                float3 pointBrdf = diffAlb * INV_PI;
+                if (pbr && pointNdl > 0.) {
+                    float3 h = normalize(HeadLightDir + v);
+                    float ndh = max(0., dot(n, h));
+                    float ndv = dot(n, v);
+                    float vdh = max(0., dot(v, h));
+                    float D = ggxD(ndh, rough);
+                    float G = ggxG1(ndv, rough) * ggxG1(pointNdl, rough);
+                    float3 F = fresnelSchlick(vdh, F0);
+                    pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
+                }
+                
+                diffuse += pointNdl * pointBrdf * HandLightColor;
             }
             // ═══════════════════════════════════════════════════
 

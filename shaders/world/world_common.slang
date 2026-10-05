@@ -1,6 +1,6 @@
 // Shared definitions for all ray-tracing stages. The generateShaderRecords task generates typed Java
 // records and serializers from Slang reflection.
-// 所有光线追踪阶段共用的定义。generateShaderRecords 任务会根据 Slang 反射生成带类型的 Java
+// 所有光线追踪阶段共用的定义。****************************************************generateShaderRecords 任务会根据 Slang 反射生成带类型的 Java
 // 记录和序列化器。
 module world_common;
 
@@ -23,6 +23,7 @@ public struct WorldPushConstants {
     public uint64_t tableAddr;
     public uint64_t entityTableAddr;
     public uint64_t materialTableAddr;
+    public uint64_t HandLightBufferAddr; //新增：手持光源
     public uint64_t lightBufferAddr;   // 新增：光源缓冲区地址
     public uint lightCount;            // 新增：光源数量
     public uint frameIndex;

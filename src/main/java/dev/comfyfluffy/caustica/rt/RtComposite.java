@@ -19,6 +19,7 @@ import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float3;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float4;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Int4;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.chat.LoggedChatMessage.Player;
 import net.minecraft.client.renderer.BiomeColors;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
@@ -236,10 +237,6 @@ public final class RtComposite {
     private RtImage gMotion;
     private RtImage gSpecAlbedo;
     private RtImage gSpecMotion;
-
-    private RtImage CloudnoiseTexture;
-    private RtImage WaternoiseTexture;
-    private long noise3DSampler;
 
     // Display-res RT image the display mapper reads: DLSS-RR writes it (render -> display denoise+upscale), or a
     // linear blit of `output` fills it when RR is off/unavailable (the no-RR reference / fallback).
@@ -548,7 +545,8 @@ public final class RtComposite {
             bindWorldTextures(ctx);
             reloadRebindRequested = false;
 
-            lightManager.initLights(ctx); // 初始化光源管理器
+            if(RtLightManager.lightBuffer == null)lightManager.initialize_Lights(ctx); // 初始化光源管理器
+            if(RtLightManager.HandLightBuffer == null)lightManager.initialize_HandLight(ctx);
         }
         // The TLAS is rebuilt and bound per frame in recordFrame since dynamic entity content animates
         // the instance set every frame.
@@ -580,7 +578,7 @@ public final class RtComposite {
         long sampler = atlasSampler(ctx);
         long atlasView = blockAlbedoAtlasView();
         boundBlockAlbedoAtlasHandle = atlasView; // remember what we bound so a reload can detect the new atlas
-        worldPipeline.setBlockAlbedoAtlas(atlasView, sampler);
+        worldPipeline.setBlockAlbedoAtlas(sampler, atlasView);
         // Bindless slot 0 = fallback texture (the block atlas) so an entity whose texture can't be
         // resolved samples something defined rather than an unbound (partially-bound) descriptor.
         RtBlockMaterials.INSTANCE.reset();
@@ -603,14 +601,9 @@ public final class RtComposite {
         RtTerrain.requestFullClear();
         materialEpochTraceGate = true;
 
-        if (CloudnoiseTexture == null) {
-            noise3DSampler = Rt3DTextures.create3DSampler(ctx);
-            CloudnoiseTexture = Rt3DTextures.createCloudNoiseTexture(ctx); //返回一个RtImage对象，里面包含了噪声纹理的VkImage和VkImageView
-            WaternoiseTexture = Rt3DTextures.createWaterNoiseTexture(ctx);
-        }
-        worldPipeline.set3DSampler(noise3DSampler); //接线，绑定到9号
-        worldPipeline.setCloudNoiseImage(CloudnoiseTexture.view); //接线，绑定到10号
-        worldPipeline.setWaterNoiseImage(WaternoiseTexture.view); //接线，绑定到11号
+        worldPipeline.setSampler3D(Rt3DTextures.getSampler3D(ctx), 9); //绑定到9号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/cloud_noise_3d_128.png", VK10.VK_FORMAT_R8_UNORM), 10); //绑定到10号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/water_wave_3d_128.png", VK10.VK_FORMAT_R8G8_UNORM), 11); //绑定到11号
     }
 
     private void refreshMaterialBindingsIfNeeded(RtContext ctx) {
@@ -665,12 +658,12 @@ public final class RtComposite {
         if (worldPipeline == null || gNormal == null) {
             return;
         }
-        worldPipeline.setExtraStorageImage(0, gNormal.view);
-        worldPipeline.setExtraStorageImage(1, gAlbedo.view);
-        worldPipeline.setExtraStorageImage(2, gDepth.view);
-        worldPipeline.setExtraStorageImage(3, gMotion.view);
-        worldPipeline.setExtraStorageImage(4, gSpecAlbedo.view);
-        worldPipeline.setExtraStorageImage(5, gSpecMotion.view);
+        worldPipeline.setExtraStorageImage(gNormal.view, 3);
+        worldPipeline.setExtraStorageImage(gAlbedo.view, 4);
+        worldPipeline.setExtraStorageImage(gDepth.view, 5);
+        worldPipeline.setExtraStorageImage(gMotion.view, 6);
+        worldPipeline.setExtraStorageImage(gSpecAlbedo.view, 7);
+        worldPipeline.setExtraStorageImage(gSpecMotion.view, 8);
     }
 
     private void destroyGuideImages() {
@@ -746,9 +739,6 @@ public final class RtComposite {
         // mapping seam. displayImage stays R8G8B8A8 to match the main target it is copied into
         // (vkCmdCopyImage requires texel-size-compatible formats).
         output = ctx.createStorageImage(renderW, renderH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "trace color " + renderW + "x" + renderH);
-        displayImage = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R8G8B8A8_UNORM, "RT display image " + width + "x" + height);
-        // PQ-encoded ([0,1], ST.2084) HDR display image, written in parallel by display.comp when HDR mode is active.
-        hdrDisplayImage = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "RT HDR display image " + width + "x" + height);
         // Guide buffers match the trace (render) resolution; DLSS-RR consumes them at render res.
         gNormal = ctx.createStorageImage(renderW, renderH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "guide normal roughness " + renderW + "x" + renderH);
         gAlbedo = ctx.createStorageImage(renderW, renderH, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "guide diffuse albedo " + renderW + "x" + renderH);
@@ -758,7 +748,6 @@ public final class RtComposite {
         gSpecMotion = ctx.createStorageImage(renderW, renderH, VK10.VK_FORMAT_R16G16_SFLOAT, "guide specular motion " + renderW + "x" + renderH);
         // Display-res RT image the display mapper reads. Always present (DLSS-RR target, or blit-upscale fallback).
         rrOutput = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "DLSS-RR output " + width + "x" + height);
-        postOutput = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "post process output " + width + "x" + height);
         bloom0 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom0 " + width + "x" + height);
         bloom1 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom1 " + width + "x" + height);
         bloom2 = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom2 " + width + "x" + height);
@@ -766,6 +755,10 @@ public final class RtComposite {
         bloom4 = ctx.createStorageImage(width/2, height/2, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom4 " + width/2 + "x" + height/2);
         bloom5 = ctx.createStorageImage(width/4, height/4, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom5 " + width/4 + "x" + height/4);
         bloom6 = ctx.createStorageImage(width/4, height/4, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "bloom6 " + width/4 + "x" + height/4);
+        postOutput = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "post process output " + width + "x" + height);
+        displayImage = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R8G8B8A8_UNORM, "RT display image " + width + "x" + height);
+        // PQ-encoded ([0,1], ST.2084) HDR display image, written in parallel by display.comp when HDR mode is active.
+        hdrDisplayImage = ctx.createStorageImage(width, height, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, "RT HDR display image " + width + "x" + height);
 
         exposure.ensureResources(ctx);
 
@@ -949,18 +942,20 @@ public final class RtComposite {
             // Push the BDA ring slot's address plus the small hot subset used directly by the shaders.
             ByteBuffer pushConstants = stack.malloc(WorldPushConstantsData.BYTE_SIZE);
 
-            // 先更新光源数据
+            // 更新光源数据
             lightManager.updateLights(level, cameraBlockPos);
+            lightManager.updateHandLight(Minecraft.getInstance().player);
 
-            new WorldPushConstantsData(
+            new WorldPushConstantsData( //可以按住ctrl进入一个神秘文件~
                 pushBuf.deviceAddress,
                 terrain.tableAddress(),
                 fe.geomTableAddr(),
                 RtMaterialRegistry.INSTANCE.tableAddress(),
-                (long)lightManager.lightBuffer.deviceAddress, // 新增：缓冲区地址
-                lightManager.currentLightCount, // 新增：光源数量
+                RtLightManager.HandLightBuffer.deviceAddress, // 新增：手持光源缓冲区地址
+                RtLightManager.lightBuffer.deviceAddress, // 新增：点光源缓冲区地址
+                (int) lightManager.currentLightCount, // 新增：光源数量，就一个int，直接传参了，不传内存地址了
                 (int) frameCounter,
-                debugView
+                (int) debugView
             ).write(pushConstants);
             try (RtDebugLabels.Scope ignored = RtDebugLabels.scope(ctx, cmd, "world trace");
                  RtFrameStats.Scope ignoredStats = RtFrameStats.FRAME.stage("frame.trace")) {
