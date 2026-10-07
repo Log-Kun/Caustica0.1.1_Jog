@@ -13,7 +13,7 @@
 // water/translucent branches that write shadowVis run only from shadow SBT records.
 import world_common;
 
-[[vk::push_constant]] WorldPushConstants pc;
+[[vk::push_constant]] PushConstants pc;
 
 [[vk::binding(2, 0)]] Sampler2D blockAlbedoAtlas;
 [[vk::binding(0, 1)]] Sampler2D entityAlbedoTex[];

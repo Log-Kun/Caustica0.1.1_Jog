@@ -1,7 +1,7 @@
 
 import world_common;
 
-[[vk::push_constant]] WorldPushConstants pc;
+[[vk::push_constant]] PushConstants pc;
 
 
 static const float PI = 3.14159265359;

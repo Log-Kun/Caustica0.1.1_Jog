@@ -3,7 +3,7 @@
 // tableAddr/entityTableAddr 直接从 push constant 读取，避免每次命中都多绕一次 WorldPush BDA。
 import world_common;
 
-[[vk::push_constant]] WorldPushConstants pc;
+[[vk::push_constant]] PushConstants pc;
 
 [[vk::binding(2, 0)]] Sampler2D blockAlbedoAtlas;
 // 独立的 bindless 数组：分别存放每次绘制的实体反照率槽位，以及紧凑的规范材质页集合。
@@ -376,4 +376,6 @@ void main(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr) 
     if (material == MATERIAL_WATER && entering) {
         payload.flags |= PAYLOAD_WATER_ENTERING;
     }
+
+    payload.outdoor = 1;
 }

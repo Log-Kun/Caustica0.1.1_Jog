@@ -13,7 +13,7 @@ struct MaterialHeaderLayoutProbe {
 
 [[vk::binding(0, 0)]] StructuredBuffer<WorldPushLayoutProbe, Std430DataLayout> worldPushLayoutProbe;
 [[vk::binding(1, 0)]] StructuredBuffer<MaterialHeaderLayoutProbe, Std430DataLayout> materialHeaderLayoutProbe;
-[[vk::push_constant]] WorldPushConstants pushConstantsLayoutProbe;
+[[vk::push_constant]] PushConstants pc;
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
@@ -22,6 +22,6 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (id.x == 0xFFFFFFFFu) {
         float sink = worldPushLayoutProbe[0].values[0].invViewProj[0][0]
                 + materialHeaderLayoutProbe[0].values[0].params.x
-                + float(pushConstantsLayoutProbe.frameIndex);
+                + float(pc.frameIndex);
     }
 }

@@ -19,7 +19,7 @@ import world_common;
 [[vk::binding(10, 0)]] Texture3D<float> CloudnoiseTex3D; //这里名字无所谓，前面的地方才是和Java对接的接口， RtComposite.bindWorldTextures() 中用 RtPipeline.setNoiseImage()  绑定了这个纹理到 binding 10
 [[vk::binding(11, 0)]] Texture3D<float2> WaternoiseTex3D;
 
-[[vk::push_constant]] WorldPushConstants pc; //用pc模式推送常量快
+[[vk::push_constant]] PushConstants pc; //用pc模式推送常量快
 
 // 每帧推送数据：相机、太阳、水体和材质开关等全局状态。
 static WorldPush worldPush; //声明空变量，void main()里再赋值，worldPush = ConstPtr<WorldPush>(pc.worldPushAddr)[0];
@@ -88,20 +88,21 @@ static float3 gv_motionObjDisp;
 #define RAY_CONE_DIFFUSE_SPREAD 0.25
 #define RAY_CONE_GLOSSY_SPREAD_SCALE 0.35
 
+
+#define CLOUD_H_MAX 350.
+#define CLOUD_H_MIN 250.
+
 // 体积云密度
 float cloudDensity(float3 p) {
-    float worldY = p.y + worldPush.waterAnchor.z;
-    float3 fp;
-    fp.xz = p.xz * 0.002;
-    fp.y = (worldY - 190.0) / (430.0 - 190.0);
-    float shape = CloudnoiseTex3D.SampleLevel(noiseSampler, fp, 0.0)*2.-1.;
-    return clamp(shape, 0., 1.) * smoothstep(190., 200., worldY) * smoothstep(430., 400., worldY);
+    p.xz *= 0.0014;
+    p.y = 0.2 * (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
+    return clamp(CloudnoiseTex3D.SampleLevel(noiseSampler, p, 0.0) * 3. - 1.5 + pc.Rain * 0.3, 0., 1.);
 }
 
 // 生成水面法线
-float3 get_water_normal(float2 worldXZ, float t) {
+float3 get_water_normal(float2 worldXZ) {
     float2 uv_xz = worldXZ / 32.0;
-    float uv_t = fmod(t, 24.0) / 24.0;
+    float uv_t = fmod(worldPush.Time, 24.0) / 24.0;
     float2 rg = WaternoiseTex3D.SampleLevel(noiseSampler, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
     return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
 }
@@ -114,8 +115,8 @@ float3 waterExtinction(float3 tint) {
 // 水下焦散：对波面到接收平面的折射映射做有限差分。
 #define CAUSTIC_EPS 0.01
 #define CAUSTIC_MAX 6.
-float2 causticLanding(float2 xz, float t, float3 inc, float h) {
-    float3 nw = get_water_normal(xz, t);
+float2 causticLanding(float2 xz, float3 inc, float h) {
+    float3 nw = get_water_normal(xz);
     float3 rdw = refract(inc, nw, 1. / WATER_IOR);
     return xz + rdw.xz * (h / -rdw.y);
 }
@@ -124,12 +125,11 @@ float waterCaustic(float3 exitPos, float3 lightDir, float waterDist) {
     float fade = smoothstep(0.06, 0.18, lightDir.y);
     if (fade <= 0.) return 1.;
     float h = waterDist * lightDir.y;
-    float t = worldPush.waterParams.w;
     float3 inc = -lightDir;
-    float2 base = exitPos.xz + worldPush.waterAnchor.xy;
-    float2 p0 = causticLanding(base, t, inc, h);
-    float2 px = causticLanding(base + float2(CAUSTIC_EPS, 0.), t, inc, h);
-    float2 pz = causticLanding(base + float2(0., CAUSTIC_EPS), t, inc, h);
+    float2 base = exitPos.xz;
+    float2 p0 = causticLanding(base, inc, h);
+    float2 px = causticLanding(base + float2(CAUSTIC_EPS, 0.), inc, h);
+    float2 pz = causticLanding(base + float2(0., CAUSTIC_EPS), inc, h);
     float det = abs((px.x - p0.x) * (pz.y - p0.y) - (px.y - p0.y) * (pz.x - p0.x));
 
     float focus = (CAUSTIC_EPS * CAUSTIC_EPS) / det;
@@ -369,7 +369,7 @@ float3 waterCelestialHighlight(float3 hitPos, float3 n, float3 viewDir, float3 b
 
 // 运动向量辅助，用上一帧矩阵投影引导点。
 float2 projectPrevNdc(float3 worldPos) {
-    float4 clip = mul(worldPush.prevViewProj, float4(worldPos - worldPush.camOffset + worldPush.camDelta, 1.));
+    float4 clip = mul(worldPush.prevViewProj, float4(worldPos - worldPush.anchorpos + worldPush.camDelta, 1.));
     return clip.xy / clip.w;
 }
 
@@ -390,7 +390,7 @@ float2 specularReflectionMotion(float3 surfacePos, float3 primaryDir, float2 cur
 
     payload.hitT = -1.;
     PAYLOAD_SET_TRACE_STATE(false,
-            max(length(surfacePos - worldPush.camOffset) * primaryConeSpread, RAY_CONE_MIN_WIDTH),
+            max(length(surfacePos - worldPush.anchorpos) * primaryConeSpread, RAY_CONE_MIN_WIDTH),
             max(primaryConeSpread, RAY_CONE_MIN_SPREAD));
     traceRadianceReordered(CULL_SECONDARY, surfacePos + n * SURF_BIAS, RAY_TMIN, specDir);
 
@@ -414,7 +414,7 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
                        float rayConeWidth, float rayConeSpread,
                        out float3 hitCamRel, out float3 motionPrev, out bool refracted, out float3 diffuseAlbedo,
                        out float3 specAlbedo) {
-    hitCamRel = surfacePos - worldPush.camOffset;
+    hitCamRel = surfacePos - worldPush.anchorpos;
     motionPrev = float3(0.);
     refracted = false;
     diffuseAlbedo = float3(0.);
@@ -434,7 +434,7 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
     PAYLOAD_SET_TRACE_STATE(false, rayConeWidth, rayConeSpread);
     traceRadianceReordered(CULL_SECONDARY, ro, RAY_TMIN, refractedDir);
     if (payload.hitT < 0.) {
-        hitCamRel = (ro + refractedDir * 1.0e6) - worldPush.camOffset;
+        hitCamRel = (ro + refractedDir * 1.0e6) - worldPush.anchorpos;
         motionPrev = float3(0.);
         diffuseAlbedo = SKY_DIFF_ALBEDO;
         specAlbedo = SKY_SPEC_ALBEDO;
@@ -442,11 +442,11 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
     }
 
     float3 hitPos = ro + refractedDir * payload.hitT;
-    hitCamRel = hitPos - worldPush.camOffset;
+    hitCamRel = hitPos - worldPush.anchorpos;
     uint material = PAYLOAD_MATERIAL;
     motionPrev = material != MATERIAL_WATER ? payload.motionPrev : float3(0.);
     if (material == MATERIAL_OPAQUE) {
-        bool pbr = (worldPush.flags & 2u) != 0u;
+        bool pbr = (pc.flags & 2u) != 0u;
         diffuseAlbedo = pbr ? payload.albedo * (1. - clamp(PAYLOAD_METALNESS, 0., 1.)) : payload.albedo;
         if (pbr) {
             float3 f0 = payload.f0;
@@ -519,12 +519,12 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
     float rayConeSpread = max(primaryConeSpread, RAY_CONE_MIN_SPREAD);
     int maxBounces = int(worldPush.maxBounces);
     int rrStart = maxBounces <= 3 ? 1 : 2;
-    bool pbr = (worldPush.flags & 2u) != 0u;
+    bool pbr = (pc.flags & 2u) != 0u;
 
-    bool inWater = (worldPush.flags & 1u) != 0u;
+    bool inWater = (pc.flags & 1u) != 0u;
 
-    float3 waterExt = waterExtinction(worldPush.waterParams.xyz);
-    bool waterWaves = (worldPush.flags & 16u) != 0u;
+    float3 waterExt = waterExtinction(worldPush.waterBiomeColor);
+    bool waterWaves = (pc.flags & 16u) != 0u;
 
     bool showCelestial = true; // 反射是否包含日月 防止漫反射出现噪点
 
@@ -537,7 +537,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             if (!inWater){
                 { // 体积光部分 近地薄雾：只处理空气中的一小段，水下衰减交给水体吸收。
                     // 近地体积雾参数，与云层是两套独立积分。
-                    #define sigmaT 0.012
+                    float sigmaT = 0.012 + pc.Rain * 0.01;
                     #define VOLUME_PHASE_G 0.72
                     #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
                     #define VOLUME_STEP_LENGTH 0.4
@@ -600,65 +600,67 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
 
 
-                { // 云层部分 求出当前光线穿过云盒的 t 范围，再在这个范围内做稀疏采样。
-                    float cloudBase = 190.;
-                    float cloudTop = 430.;
-                    float cloudFadeStart = 1400.;
-                    float cloudMaxDistance = 1800.;
+                { // 云层部分：标准双层步进，外层沿视线方向、内层沿光线方向积分光学深度。
+                    #define CLOUD_VIEW_STEPS 24
+                    #define CLOUD_LIGHT_STEPS 6
+                    float cloudFadeStart = 1000.;
+                    float cloudMaxDistance = 2000.;
                     float rayLimit = payload.hitT >= 0. ? min(payload.hitT, cloudMaxDistance) : cloudMaxDistance;
 
+                    // 云层仅在 Y 方向有界（XZ 无限延伸），用标准 Y-slab 统一求交得到光段 [t0, t1]。
+                    // min/max 自动覆盖相机在云下/云内/云上、以及视线朝上/朝下的全部情况。
                     float t0 = 0.;
                     float t1 = -1.;
                     if (rayLimit > 0.) {
-                        float roWorldY = ro.y + worldPush.waterAnchor.z;
-                        if (abs(rd.y) > 0.01) {
-                            float ta = (cloudBase - roWorldY) / rd.y;
-                            float tb = (cloudTop - roWorldY) / rd.y;
-                            t0 = max(min(ta, tb), 0.);
-                            t1 = min(max(ta, tb), rayLimit);
-                        } else if (roWorldY > cloudBase && roWorldY < cloudTop) {
-                            t1 = rayLimit;
-                        }
+                        float roWorldY = ro.y + worldPush.anchororigin.y;
+                        // 视线近似平行于云层时（rd.y→0，云在无穷远）用 eps 保底，避免除零。
+                        float dy = rd.y;
+                        if (abs(dy) < 1e-4) dy = dy >= 0. ? 1e-4 : -1e-4;
+                        float ta = (CLOUD_H_MIN - roWorldY) / dy;
+                        float tb = (CLOUD_H_MAX - roWorldY) / dy;
+                        t0 = max(min(ta, tb), 0.);
+                        t1 = min(max(ta, tb), rayLimit);
                     }
 
                     if (t1 > t0) {
                         float T = 1.;
                         float3 cloudL = float3(0.);
-                        float sigmaT_water = 0.012;
+                        float sigmaT_cloud = 0.012;
                         float scatterAlbedo = 0.88;
                         float cloudG = 0.38;
                         float3 cloudLightDir = normalize(worldPush.lightDir.xyz);
                         float cloudLightUp = smoothstep(0.02, 0.15, cloudLightDir.y);
                         float hgPhase = hg(dot(rd, cloudLightDir), cloudG);
-                        float cloudStepLen = (t1 - t0) / 8.;
-                        float jitter = rndf(seed) * 0.8 + 0.1;
                         float day = worldPush.sunDir.w;
 
-                        for (int s = 0; s < 3; s++) {
+                        // 外层：沿视线方向等间隔覆盖整个云盒区间。
+                        float cloudStepLen = (t1 - t0) / float(CLOUD_VIEW_STEPS);
+                        // 内层：从每个视点沿光线方向步进，步长按云盒厚度均分。
+                        float cloudLightStepLen = (CLOUD_H_MAX - CLOUD_H_MIN) / float(CLOUD_LIGHT_STEPS);
+                        float jitter = rndf(seed);
+
+                        for (int s = 0; s < CLOUD_VIEW_STEPS; s++) {
                             float t = t0 + (float(s) + jitter) * cloudStepLen;
-                            float3 cp = ro + rd * t;
-                            float distFade = 1. - smoothstep(cloudFadeStart, cloudMaxDistance, t);
-                            float rawDensity = cloudDensity(cp);
-                            float density = rawDensity * distFade;
+                            float3 cp = ro + rd * t + worldPush.anchororigin; //转换到真正的世界坐标
+                            float density = cloudDensity(cp) * smoothstep(cloudMaxDistance, cloudFadeStart, t);
                             if (density <= 0.001) {
                                 continue;
                             }
 
-                            float lightT = 0.45;
-                            if (cloudLightUp > 0.) {
-                                float lightProbe = cloudDensity(cp + cloudLightDir * 90.);
-                                float edgeLight = clamp((rawDensity - lightProbe) * 3. + 0.35, 0., 1.);
-                                lightT = lerp(0.20, 1., edgeLight * edgeLight * (3. - 2. * edgeLight));
+                            // 内层：沿光线方向累积光学深度，Beer-Lambert 求到达该点的太阳透射率。
+                            float lightOpticalDepth = 0.;
+                            float lightT = cloudLightStepLen * (0.5 + jitter);
+                            for (int j = 0; j < CLOUD_LIGHT_STEPS; j++) {
+                                lightOpticalDepth += cloudDensity(cp + cloudLightDir * lightT) * cloudLightStepLen;
+                                lightT += cloudLightStepLen;
                             }
+                            float sunTrans = exp(-sigmaT_cloud * lightOpticalDepth);
 
-                            float alpha = 1. - exp(-sigmaT_water * density * cloudStepLen);
-                            float viewLight = max(dot(rd, cloudLightDir), 0.);
-                            float phaseFit = lerp(0.07, min(hgPhase * 1.8, 0.55), smoothstep(0., 0.9, viewLight));
+                            float alpha = 1. - exp(-sigmaT_cloud * density * cloudStepLen);
                             float powder = 1. - exp(-density * 2.2);
-                            float rim = smoothstep(0.15, 0.85, lightT) * smoothstep(0.20, 0.95, viewLight);
                             float3 ambientCloud = lerp(float3(0.010, 0.014, 0.028), float3(0.20, 0.22, 0.24), day);
                             float3 directCloud = worldPush.lightRadiance.xyz * scatterAlbedo * cloudLightUp
-                                    * (phaseFit * lightT * (0.22 + 0.78 * powder) + rim * 0.030) * day;
+                                    * hgPhase * sunTrans * (0.22 + 0.78 * powder) * day;
 
                             cloudL += T * alpha * (ambientCloud + directCloud);
                             T *= 1. - alpha;
@@ -697,11 +699,11 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     if (waterWaves && shadowVis.a > 0.01) {
                         vis *= waterCaustic(p + waterLightDir * shadowVis.a, waterLightDir, shadowVis.a);
                     }
-                    float3 stepScatter = clamp(worldPush.waterParams.xyz, 0.15, 1.) * WATER_VOLUME_SCATTER * waterPhase * (1. - exp(-sigmaT_water * stepLen));
+                    float3 stepScatter = clamp(worldPush.waterBiomeColor, 0.15, 1.) * WATER_VOLUME_SCATTER * waterPhase * (1. - exp(-sigmaT_water * stepLen));
                     diffuse += throughput * waterVolumeTr * stepScatter * worldPush.lightRadiance.xyz * vis * day * WATER_VOLUME_INTENSITY;
                     waterVolumeTr *= exp(-sigmaT_water * stepLen);
                 }
-                float3 waterFogColor = (worldPush.waterParams.xyz + float3(0.02, 0.10, 0.14)) * lerp(WATER_NIGHT_AMBIENT_SCALE, WATER_DAY_AMBIENT_SCALE, day);
+                float3 waterFogColor = (worldPush.waterBiomeColor + float3(0.02, 0.10, 0.14)) * lerp(WATER_NIGHT_AMBIENT_SCALE, WATER_DAY_AMBIENT_SCALE, day);
                 diffuse += throughput * waterFogColor * (float3(1.) - waterVolumeTr);
                 throughput *= waterVolumeTr;
             }
@@ -747,7 +749,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 gv_rough = clamp(PAYLOAD_ROUGHNESS, 0., 1.);
                 gv_specAlb = float3(F, F, F);
                 gv_albedo = glassTint;
-                gv_hitCamRel = hitPos - worldPush.camOffset;
+                gv_hitCamRel = hitPos - worldPush.anchorpos;
                 gv_motionHitCamRel = gv_hitCamRel;
                 gv_motionUseRefracted = false;
                 gv_motionObjDisp = payload.motionPrev;
@@ -775,7 +777,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             gv_albedo = albedo;
             gv_specAlb = float3(0.);
             gv_rough = 1.;
-            gv_hitCamRel = hitPos - worldPush.camOffset;
+            gv_hitCamRel = hitPos - worldPush.anchorpos;
             gv_motionHitCamRel = gv_hitCamRel;
             gv_motionUseRefracted = false;
             gv_motionObjDisp = payload.motionPrev;
@@ -809,8 +811,8 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             bool materialEntering = PAYLOAD_WATER_ENTERING;
 
             if (waterWaves) {
-                float2 waveXZ = hitPos.xz + worldPush.waterAnchor.xy + (abs(n.y) < 0.5 ? hitPos.y : 0.);
-                n = get_water_normal(waveXZ, worldPush.waterParams.w) * (n.y < 0. ? -1. : 1.);
+                float2 waveXZ = hitPos.xz + worldPush.anchororigin.xz + (abs(n.y) < 0.5 ? hitPos.y : 0.);
+                n = get_water_normal(waveXZ) * (n.y < 0. ? -1. : 1.);
             }
             waterExt = waterExtinction(payload.albedo);
             float cosI = clamp(dot(-rd, n), 0., 1.);
@@ -820,7 +822,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             if (bounce == 0) {
                 gv_normal = n;
                 gv_rough = clamp(PAYLOAD_ROUGHNESS, 0., 1.);
-                gv_hitCamRel = hitPos - worldPush.camOffset;
+                gv_hitCamRel = hitPos - worldPush.anchorpos;
 
                 float3 refractedAlbedo;
                 float3 refractedSpecAlbedo;
@@ -866,6 +868,9 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         float3 v = -rd;
 
         float rough = pbr ? clamp(PAYLOAD_ROUGHNESS, 0., 1.) : 1.; //读取PBR参数
+        if(n.y > 0.4 && pc.Rain > 0.001) {
+        //    rough = lerp(rough, 0., pc.Rain * float(payload.outdoor) );
+        }
         float metal = pbr ? clamp(PAYLOAD_METALNESS, 0., 1.) : 0.;
         float3 diffAlb = albedo * (1. - metal);
 
@@ -941,7 +946,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             gv_albedo = pbr ? diffAlb : albedo;
             gv_rough = rough;
             gv_specAlb = pbr ? rrSpecularAlbedo(F0, rough * rough, dot(n, v)) : float3(0.);
-            gv_hitCamRel = ro + rd * payload.hitT - worldPush.camOffset;
+            gv_hitCamRel = ro + rd * payload.hitT - worldPush.anchorpos;
             gv_motionHitCamRel = gv_hitCamRel;
             gv_motionUseRefracted = false;
             gv_motionObjDisp = payload.motionPrev;
@@ -1061,15 +1066,15 @@ void main() {
         float4 farH = mul(worldPush.invViewProj, float4(jndc.x, jndc.y, 0., 1.));
         float3 nearP = nearH.xyz / nearH.w;
         float3 farP = farH.xyz / farH.w;
-        origin = nearP + worldPush.camOffset;
+        origin = nearP + worldPush.anchorpos;
         dir = normalize(farP - nearP);
     }
 
     float rayConeSpread = primaryRayConeSpread(jndc, size, dir); //用于计算光线锥的初始扩散角度，影响路径追踪的采样精度。
 
-    uint seed = (uint(pix.x) * 1973u + uint(pix.y) * 9277u + 26699u) ^ (worldPush.frameIndex * 2u);
+    uint seed = (uint(pix.x) * 1973u + uint(pix.y) * 9277u + 26699u) ^ (pc.frameIndex * 2u);
 
-    uint spp = max(worldPush.spp, 1u);
+    uint spp = max(pc.spp, 1u);
     float3 frameRadiance = float3(0.);
     for (uint s = 0u; s < spp; s++) { //核心循环
         seed = pcg(seed);
@@ -1102,7 +1107,7 @@ void main() {
     float2 motion = (prevNdc - curNdc) * 0.5 * size;
     gMotion[pix] = motion;
 
-    float2 specMotion = specularReflectionMotion(gv_hitCamRel + worldPush.camOffset, dir, jndc, size, rayConeSpread);
+    float2 specMotion = specularReflectionMotion(gv_hitCamRel + worldPush.anchorpos, dir, jndc, size, rayConeSpread);
     gSpecMotion[pix] = specMotion;
 
 }

@@ -131,7 +131,6 @@ public class RtLightManager {
 
     public void updateLights(Level level, BlockPos center) {
 
-        //扫描附近光源
         List<PointLight> lights = scanNearbyLights(level, center);
 
         if(frameCounter == 0){ //仅在某一帧更新光源，防止列表更新导致闪烁

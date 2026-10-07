@@ -15,19 +15,46 @@ module world_common;
 // 明确启用该特性，否则保持使用 std430；此别名是唯一的布局切换点，生成的 Java 序列化始终与其同步。
 public typealias ConstPtr<T> = Ptr<T, Access.Read, AddressSpace.Device, Std430DataLayout>;
 
+// Per-frame world data, read through a 64-bit device address. WorldPushData.java is generated from this
+// reflected type, including its serializer, byte size, vector/matrix types, and fixed-array capacities.
+// 每帧世界数据，通过 64 位设备地址读取。WorldPushData.java 根据此反射类型生成，其中包括序列化器、
+// 字节大小、向量/矩阵类型以及固定数组容量。
+public struct WorldPush {
+    public float4x4   invViewProj;
+    public float3     anchorpos;           //以rebase后的锚点为原点的坐标系，类似chunkpos
+    public float3     anchororigin;        //rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
+    public float4x4   prevViewProj;
+    public float3     camDelta;
+    public float2     jitter;
+    public uint       maxBounces;
+    public float4     sunDir;              // xyz true sun direction, w dayFactor 0..1；xyz 真实太阳方向，w 白昼因子 0..1
+    public float4     moonDir;             // xyz moon direction, w moonPhase (0 full .. 4 new)；xyz 月亮方向，w 月相（0 满月 .. 4 新月）
+    public float4     lightDir;            // xyz active NEE light dir, w square half-angle (rad)；xyz 当前 NEE 光源方向，w 正方形半角（弧度）
+    public float4     lightRadiance;       // xyz HDR light radiance, w star brightness；xyz HDR 光辐射，w 星体亮度
+    public float4     celestial;           // xyz celestial rotation axis, w star angle (rad)；xyz 天体旋转轴，w 星体角度（弧度）      
+    public float3     waterBiomeColor;     // 生物群系水体颜色
+    public float      Time;
+    public float4x4   curViewProj;         // forward camera-relative view-projection；前向相机相对视图投影矩阵
+    public uint       breakCount;
+    public BreakEntry breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
+};
+
 // Push constant block. The hot inline lanes avoid dereferencing WorldPush for values that are read in
 // hit shaders or used for raygen control flow.
 // 推送常量块。热点内联字段可避免为读取命中着色器中的值或控制光线生成流程而解引用 WorldPush。
-public struct WorldPushConstants {
-    public uint64_t worldPushAddr;
-    public uint64_t tableAddr;
-    public uint64_t entityTableAddr;
-    public uint64_t materialTableAddr;
-    public uint64_t HandLightBufferAddr; //新增：手持光源
-    public uint64_t lightBufferAddr;   // 新增：光源缓冲区地址
-    public uint lightCount;            // 新增：光源数量
-    public uint frameIndex;
-    public uint debugView;
+public struct PushConstants {
+    public uint64_t   worldPushAddr;
+    public uint64_t   tableAddr;           // 区段表
+    public uint64_t   entityTableAddr;     // 实体几何表
+    public uint64_t   materialTableAddr;
+    public uint64_t   HandLightBufferAddr; // 手持光源
+    public uint64_t   lightBufferAddr;     // 光源缓冲区地址
+    public uint       lightCount;          // 光源数量
+    public uint       frameIndex;
+    public uint       debugView;
+    public uint       spp;
+    public uint       flags;               // bit0 相机浸入水中，bit1 PBR BRDF，bit4 水面波浪
+    public float      Rain;
 };
 
 // Block-breaking overlay entry: xyz = breaking block position (rebased, same space as gl_WorldRay*),
@@ -38,49 +65,20 @@ public struct BreakEntry {
     public int4 posSlot;
 };
 
-// Per-frame world data, read through a 64-bit device address. WorldPushData.java is generated from this
-// reflected type, including its serializer, byte size, vector/matrix types, and fixed-array capacities.
-// 每帧世界数据，通过 64 位设备地址读取。WorldPushData.java 根据此反射类型生成，其中包括序列化器、
-// 字节大小、向量/矩阵类型以及固定数组容量。
-public struct WorldPush {
-    public float4x4 invViewProj;
-    public float3   camOffset;
-    public uint64_t tableAddr;        // section table；区段表
-    public uint     frameIndex;
-    public float4x4 prevViewProj;
-    public float3   camDelta;
-    public uint     spp;
-    public float2   jitter;
-    public uint64_t entityTableAddr;  // entity geometry table；实体几何表
-    public uint     flags;            // bit0 camera submerged, bit1 PBR BRDF, bit4 water waves；bit0 相机浸入水中，bit1 PBR BRDF，bit4 水面波浪
-    public uint     maxBounces;
-    public float4   sunDir;           // xyz true sun direction, w dayFactor 0..1；xyz 真实太阳方向，w 白昼因子 0..1
-    public float4   lightDir;         // xyz active NEE light dir, w square half-angle (rad)；xyz 当前 NEE 光源方向，w 正方形半角（弧度）
-    public float4   lightRadiance;    // xyz HDR light radiance, w star brightness；xyz HDR 光辐射，w 星体亮度
-    public float4   moonDir;          // xyz moon direction, w moonPhase (0 full .. 4 new)；xyz 月亮方向，w 月相（0 满月 .. 4 新月）
-    public float4   celestial;        // xyz celestial rotation axis, w star angle (rad)；xyz 天体旋转轴，w 星体角度（弧度）
-    public float4   sunUv;            // vanilla sun sprite atlas rect (u0,v0,u1,v1)；原版太阳精灵图集矩形（u0,v0,u1,v1）
-    public float4   moonUv;           // vanilla current-moon-phase sprite atlas rect；原版当前月相精灵图集矩形
-    public float4   waterParams;      // xyz camera-biome water tint, w wave time (s)；xyz 相机所在生物群系的水体颜色，w 波浪时间（秒）
-    public float4   waterAnchor;      // xy world-stable wave-domain anchor, z rebase origin Y；xy 世界稳定的波浪域锚点
-    public float4x4 curViewProj;      // forward camera-relative view-projection；前向相机相对视图投影矩阵
-    public uint     breakCount;
-    public BreakEntry breaking[8];    // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
-};
-
 // Radiance-ray payload (location 0). Member order and types are a cross-stage ABI.
 // 辐射光线载荷（位置 0）。成员顺序和类型构成跨阶段 ABI。
 public struct Payload {
-    public float3 albedo;      // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
-    public float3 normal;      // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
-    public float  hitT;        // >= 0 on hit, < 0 on miss；命中时 >= 0，未命中时 < 0
-    public float3 motionPrev;  // per-vertex world displacement since last frame；从上一帧开始每个顶点的世界位移
-    public float3 f0;          // specular F0；镜面反射 F0
-    public uint   flags;       // bits 0..1 material, bit 2 celestial, bit 3 water-entering, bits 4..6 emission source；bits 0..1 材质，bit 2 天体，bit 3 进入水体，bits 4..6 发光源
-    public uint   roughMetal;  // packHalf2x16(roughness, metalness)；packHalf2x16(粗糙度，金属度)
-    public uint   emissionSss; // packHalf2x16(emission, sss)；packHalf2x16(发光度，sss)
+    public float3 albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
+    public float3 normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
+    public float  hitT;            // >= 0 on hit, < 0 on miss；命中时 >= 0，未命中时 < 0
+    public float3 motionPrev;      // per-vertex world displacement since last frame；从上一帧开始每个顶点的世界位移
+    public float3 f0;              // specular F0；镜面反射 F0
+    public uint   flags;           // bits 0..1 material, bit 2 celestial, bit 3 water-entering, bits 4..6 emission source；bits 0..1 材质，bit 2 天体，bit 3 进入水体，bits 4..6 发光源
+    public uint   roughMetal;      // packHalf2x16(roughness, metalness)；packHalf2x16(粗糙度，金属度)
+    public uint   emissionSss;     // packHalf2x16(emission, sss)；packHalf2x16(发光度，sss)
     public uint   iorTransmission; // packHalf2x16(IOR, transmission factor)；packHalf2x16(IOR，透射因子)
-    public uint   rayCone;     // packHalf2x16(width, spread)；packHalf2x16(宽度，扩散度)
+    public uint   rayCone;         // packHalf2x16(width, spread)；packHalf2x16(宽度，扩散度)
+    public uint   outdoor;         // 露天程度
 };
 
 public static const uint PAYLOAD_SHOW_CELESTIAL = 4u;

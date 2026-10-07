@@ -11,7 +11,7 @@ import dev.comfyfluffy.caustica.CausticaConfig;
 import dev.comfyfluffy.caustica.CausticaMod;
 import dev.comfyfluffy.caustica.client.CausticaJitter;
 import dev.comfyfluffy.caustica.mixin.CommandEncoderAccessor;
-import dev.comfyfluffy.caustica.rt.gen.WorldPushConstantsData;
+import dev.comfyfluffy.caustica.rt.gen.PushConstantsData;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.BreakEntry;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float2;
@@ -97,7 +97,7 @@ public final class RtComposite {
     private static final int WORLD_PUSH_SIZE = WorldPushData.BYTE_SIZE;
     // Real inline push constants (fast constant-bank reads), separate from the WorldPush BDA ring above.
     // Hot addresses/frameIndex and raygen's debugView avoid unnecessary global-memory dereferences;
-    // WorldPushConstantsData is generated from the same Slang module and owns this second ABI as well.
+    // PushConstantsData is generated from the same Slang module and owns this second ABI as well.
     //private static final int GUIDE_COUNT = 6; // RR guide buffers bound at world-pipeline bindings 3..8
     //现已内联！
     // Frames a retired per-frame TLAS must outlive before it's freed (> frames-in-flight); matches
@@ -121,16 +121,8 @@ public final class RtComposite {
         return CausticaConfig.Rt.Composite.WATER_WAVES.value();
     }
 
-    // Finite sun/moon angular sizes let NEE shadow rays sample the light disk (soft, contact-hardening
-    // penumbrae). Radii in degrees; the real sun/moon are ~0.27掳, but a touch larger reads pleasantly.
-    private static final int WATER_ANCHOR_MASK = 4095;
     private static final Identifier SUN_ID = Identifier.withDefaultNamespace("sun");
     private static final Identifier[] MOON_IDS = createMoonIds();
-    // Celestial rotation axis (the pole the sun/moon arc about): perpendicular to the east-west arc,
-    // tilted by SUN_NOON_SOUTH_TILT. Pushed so the sky shader can build the sun/moon square's tangent
-    // frame (right = travel direction) and wheel the starfield. = normalize(noonDir x sunriseDir).
-    // Sign of the sub-pixel jitter as reported to DLSS-RR + applied to the primary ray, mirroring the
-    // validated DLSS-SR convention (Vulkan flipped clip space wants Y negated).
     private static float jitterSignX() {
         return CausticaConfig.Rt.Composite.JITTER_SIGN_X.value();
     }
@@ -529,7 +521,7 @@ public final class RtComposite {
     private RtPipeline ensureWorld(RtContext ctx) {
         if (worldPipeline == null) {
             bindlessTextureCapacity = RtEntityTextures.maxTextures();
-            worldPipeline = RtPipeline.create(ctx, RtDeviceBringup.worldRaygenShader(), new String[]{"world.rmiss.spv"}, "world.rchit.spv", "world.rahit.spv", WorldPushConstantsData.BYTE_SIZE, bindlessTextureCapacity);
+            worldPipeline = RtPipeline.create(ctx, RtDeviceBringup.worldRaygenShader(), new String[]{"world.rmiss.spv"}, "world.rchit.spv", "world.rahit.spv", PushConstantsData.BYTE_SIZE, bindlessTextureCapacity);
             // Per-frame world data lives in this BDA ring; the pipeline pushes its address and hot fields.
             if (pushRing == null) {
                 pushRing = new RtBuffer[PUSH_RING];
@@ -867,14 +859,9 @@ public final class RtComposite {
                 wtg = ((wc >> 8) & 0xFF) / 255f;
                 wtb = (wc & 0xFF) / 255f;
             }
-            Float4 waterParams = new Float4(wtr, wtg, wtb,
-                    (float) (System.nanoTime() / 1.0e9 % 3600.0));
-            // W1 wave-domain anchor: the terrain rebase origin reduced mod 4096 (kept small for shader
-            // float precision). hitPos.xz (rebased) + anchor reconstructs a world-pinned coordinate, so the
-            // ripple pattern stays fixed in the world as the player moves and the rebase origin shifts.
-            Float4 waterAnchor = new Float4(terrain.blockX & WATER_ANCHOR_MASK,
-                    terrain.blockZ & WATER_ANCHOR_MASK, terrain.blockY, 0f);
-
+            Float3 waterBiomeColor = new Float3(wtr, wtg, wtb);
+            float Time = (float)(System.nanoTime() / 1.0e9 % 3600.0);
+            
             // Rebuild the TLAS this frame from static section instances merged with dynamic entity
             // instances, bind it into the pipeline's descriptor ring, record the build, then barrier so
             // the trace sees the finished TLAS. Section BLASes are already built (async, by RtTerrain);
@@ -890,33 +877,28 @@ public final class RtComposite {
             // resolved slot rides along with the uploadPending() call right below.
             BreakEntry[] breaking = breakingEntries(terrain);
             SkyPush sky = skyPush();
-            new WorldPushData(
+            new WorldPushData( // 间接推送部分
                     frameInvViewProj,
-                    new Float3((float) (camX - terrain.blockX), (float) (camY - terrain.blockY),
-                            (float) (camZ - terrain.blockZ)),
-                    terrain.tableAddress(),
-                    (int) frameCounter,
+                    new Float3((float) (camX - terrain.blockX), (float) (camY - terrain.blockY), (float) (camZ - terrain.blockZ)),
+                    new Float3((float) terrain.blockX, (float) terrain.blockY, (float) terrain.blockZ),
                     mvPushMatrix,
                     new Float3(mvCamDeltaX, mvCamDeltaY, mvCamDeltaZ),
-                    spp(),
                     new Float2(jitterX, jitterY),
-                    fe.geomTableAddr(),
-                    flags,
                     maxBounces(),
                     sky.sunDir(),
+                    sky.moonDir(),
                     sky.lightDir(),
                     sky.lightRadiance(),
-                    sky.moonDir(),
                     sky.celestial(),
-                    sky.sunUv(),
-                    sky.moonUv(),
-                    waterParams,
-                    waterAnchor,
+                    waterBiomeColor,
+                    Time,
                     mvCurProjView,
                     breaking.length,
                     breaking
             ).write(push);
+
             pushBuf.flush(0L, WORLD_PUSH_SIZE);
+            
             // Upload any entity textures registered this frame into the bindless set before the trace.
             RtEntityTextures.INSTANCE.uploadPending(active, atlasSampler(ctx));
             // Build the entity BLAS this frame, then the TLAS that references them (+ the already-built
@@ -940,23 +922,27 @@ public final class RtComposite {
             VulkanCommandEncoder.memoryBarrier(cmd, stack); // TLAS build visible to the trace
 
             // Push the BDA ring slot's address plus the small hot subset used directly by the shaders.
-            ByteBuffer pushConstants = stack.malloc(WorldPushConstantsData.BYTE_SIZE);
+            ByteBuffer pushConstants = stack.malloc(PushConstantsData.BYTE_SIZE);
 
             // 更新光源数据
             lightManager.updateLights(level, cameraBlockPos);
             lightManager.updateHandLight(Minecraft.getInstance().player);
 
-            new WorldPushConstantsData( //可以按住ctrl进入一个神秘文件~
+            new PushConstantsData( // 直接推送部分，PC传参有大小限制，所以需要有 worldpush
                 pushBuf.deviceAddress,
                 terrain.tableAddress(),
                 fe.geomTableAddr(),
                 RtMaterialRegistry.INSTANCE.tableAddress(),
-                RtLightManager.HandLightBuffer.deviceAddress, // 新增：手持光源缓冲区地址
-                RtLightManager.lightBuffer.deviceAddress, // 新增：点光源缓冲区地址
-                (int) lightManager.currentLightCount, // 新增：光源数量，就一个int，直接传参了，不传内存地址了
+                RtLightManager.HandLightBuffer.deviceAddress, //手持光源缓冲区地址
+                RtLightManager.lightBuffer.deviceAddress,     //点光源缓冲区地址
+                (int) lightManager.currentLightCount,         //光源数量，就一个int，直接传参了，不传内存地址了
                 (int) frameCounter,
-                (int) debugView
+                (int) debugView,
+                spp(),
+                flags,
+                level.getRainLevel(10)
             ).write(pushConstants);
+
             try (RtDebugLabels.Scope ignored = RtDebugLabels.scope(ctx, cmd, "world trace");
                  RtFrameStats.Scope ignoredStats = RtFrameStats.FRAME.stage("frame.trace")) {
                 active.trace(cmd, renderW, renderH, pushConstants);
@@ -1061,8 +1047,8 @@ public final class RtComposite {
         return count == result.length ? result : java.util.Arrays.copyOf(result, count);
     }
 
-    private record SkyPush(Float4 sunDir, Float4 lightDir, Float4 lightRadiance, Float4 moonDir,
-                           Float4 celestial, Float4 sunUv, Float4 moonUv) {}
+    private record SkyPush(Float4 sunDir, Float4 moonDir, Float4 lightDir, Float4 lightRadiance,
+                           Float4 celestial) {}
 
     private record CelestialUv(Float4 sun, Float4 moon) {}
 
@@ -1126,12 +1112,11 @@ public final class RtComposite {
         CelestialUv uv = celestialUv(moonPhase);
         return new SkyPush(
                 new Float4(sunX, sunY, sunZ, dayFactor),
+                new Float4(moonX, moonY, moonZ, moonPhase),
                 new Float4(lx, ly, lz, lightRadius),
                 new Float4(rr, rg, rb, starBrightness),
-                new Float4(moonX, moonY, moonZ, moonPhase),
-                new Float4(0f, celestialAxisY(), celestialAxisZ(), starAngle),
-                uv.sun(),
-                uv.moon());
+                new Float4(0f, celestialAxisY(), celestialAxisZ(), starAngle)
+                );
     }
 
     /**

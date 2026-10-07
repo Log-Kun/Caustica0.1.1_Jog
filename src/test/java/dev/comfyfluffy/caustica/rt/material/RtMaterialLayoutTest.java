@@ -2,7 +2,7 @@ package dev.comfyfluffy.caustica.rt.material;
 
 import dev.comfyfluffy.caustica.rt.gen.MaterialHeaderData;
 import dev.comfyfluffy.caustica.rt.gen.MaterialHeaderData.Float4;
-import dev.comfyfluffy.caustica.rt.gen.WorldPushConstantsData;
+import dev.comfyfluffy.caustica.rt.gen.PushConstantsData;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -31,17 +31,4 @@ final class RtMaterialLayoutTest {
         assertEquals(1.52f, data.getFloat(56));
         assertEquals(0.6f, data.getFloat(76));
     }
-
-    /*@Test
-    void reflectedWorldPushConstantsIncludeMaterialTableAndDebugView() {
-        assertEquals(56, WorldPushConstantsData.BYTE_SIZE);
-        ByteBuffer data = ByteBuffer.allocateDirect(WorldPushConstantsData.BYTE_SIZE)
-                .order(ByteOrder.nativeOrder());
-        new WorldPushConstantsData(1L, 2L, 3L, 4L, 5L, 6, 7, 8).write(data);
-        assertEquals(4L, data.getLong(24));
-        assertEquals(5L, data.getLong(32));
-        assertEquals(6, data.getInt(40));
-        assertEquals(7, data.getInt(44));
-        assertEquals(8, data.getInt(48));
-    }*/
 }
