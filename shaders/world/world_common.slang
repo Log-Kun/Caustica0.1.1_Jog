@@ -21,8 +21,6 @@ public typealias ConstPtr<T> = Ptr<T, Access.Read, AddressSpace.Device, Std430Da
 // 字节大小、向量/矩阵类型以及固定数组容量。
 public struct WorldPush {
     public float4x4   invViewProj;
-    public float3     anchorpos;           //以rebase后的锚点为原点的坐标系，类似chunkpos
-    public float3     anchororigin;        //rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
     public float4x4   prevViewProj;
     public float3     camDelta;
     public float2     jitter;
@@ -47,6 +45,7 @@ public struct PushConstants {
     public uint64_t   tableAddr;           // 区段表
     public uint64_t   entityTableAddr;     // 实体几何表
     public uint64_t   materialTableAddr;
+    public uint64_t   HeightMapAddr;
     public uint64_t   HandLightBufferAddr; // 手持光源
     public uint64_t   lightBufferAddr;     // 光源缓冲区地址
     public uint       lightCount;          // 光源数量
@@ -55,6 +54,8 @@ public struct PushConstants {
     public uint       spp;
     public uint       flags;               // bit0 相机浸入水中，bit1 PBR BRDF，bit4 水面波浪
     public float      Rain;
+    public float3     anchorpos;           // 以rebase后的锚点为原点的坐标系，类似chunkpos
+    public int3       anchororigin;        // rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
 };
 
 // Block-breaking overlay entry: xyz = breaking block position (rebased, same space as gl_WorldRay*),
@@ -66,7 +67,7 @@ public struct BreakEntry {
 };
 
 // Radiance-ray payload (location 0). Member order and types are a cross-stage ABI.
-// 辐射光线载荷（位置 0）。成员顺序和类型构成跨阶段 ABI。
+// 辐射光线载荷（位置 0）。成员顺序和类型构成跨阶段 ABI。注意这里要尽量小一些！从寄存器溢出会很慢！
 public struct Payload {
     public float3 albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
     public float3 normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
@@ -78,7 +79,7 @@ public struct Payload {
     public uint   emissionSss;     // packHalf2x16(emission, sss)；packHalf2x16(发光度，sss)
     public uint   iorTransmission; // packHalf2x16(IOR, transmission factor)；packHalf2x16(IOR，透射因子)
     public uint   rayCone;         // packHalf2x16(width, spread)；packHalf2x16(宽度，扩散度)
-    public uint   outdoor;         // 露天程度
+    public bool   outdoor;
 };
 
 public static const uint PAYLOAD_SHOW_CELESTIAL = 4u;

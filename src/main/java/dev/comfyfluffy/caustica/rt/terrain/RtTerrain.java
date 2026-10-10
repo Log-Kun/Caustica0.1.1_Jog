@@ -220,7 +220,7 @@ public final class RtTerrain {
 
     /** Section table device address: {@code {u64 primAddr, u64 uvAddr, u32 triBase[4]}} per section, indexed by gl_InstanceCustomIndexEXT. */
     public long tableAddress() {
-        return table.address();
+        return table.address(); // table 是 RtSectionTable() 类，其中 address() 返回的是 buffer.deviceAddress 
     }
 
     /** Per-tick residency update: window sync + dirty drain (plus the streaming fallback, see {@link #frame}). */
@@ -1412,7 +1412,7 @@ public final class RtTerrain {
                 g.instanceIndex = prev.instanceIndex;
                 table.slots.set(g.slot, g);
                 resident.put(ps.key(), g);
-                table.write(g);
+                table.write(g);   // 写入 buffer
                 table.instanceList.set(g.instanceIndex, table.instanceFor(g, baseX, baseY, baseZ));
                 retire(ctx, lastGraphicsUse, List.of(prev));
             } else {
@@ -1420,7 +1420,7 @@ public final class RtTerrain {
                 g.instanceIndex = table.instanceList.size();
                 table.slots.set(g.slot, g);
                 resident.put(ps.key(), g);
-                table.write(g);
+                table.write(g);   // 写入 buffer
                 table.instanceList.add(table.instanceFor(g, baseX, baseY, baseZ));
             }
             published.add(ps.key());

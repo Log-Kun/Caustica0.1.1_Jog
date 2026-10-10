@@ -210,4 +210,5 @@ void main(inout Payload payload) {
     payload.emissionSss = packHalf2(float2(0.0, 0.0));
     payload.iorTransmission = packHalf2(float2(1.0, 0.0));
     payload.rayCone = 0u;
+    payload.outdoor = true;
 }

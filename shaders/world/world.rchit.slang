@@ -377,5 +377,25 @@ void main(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr) 
         payload.flags |= PAYLOAD_WATER_ENTERING;
     }
 
-    payload.outdoor = 1;
+    if(pc.Rain > 0.001) {
+        int3 hitPos = int3(floor(WorldRayOrigin() + WorldRayDirection() * RayTCurrent() + float3(pc.anchororigin))); // 击中点绝对世界坐标，截断用floor防止负值和正值结果偏差
+
+        int floorx = hitPos.x >> 4; // 获得击中点所在区块编号
+        int floorz = hitPos.z >> 4;
+        floorx -= int(floor(float(pc.anchororigin.x) + pc.anchorpos.x)) >> 4; // 以玩家当前所在区块为零号区块，调整区块编号。先转浮点再转int，和Java侧统一，防止负数截断不一致
+        floorz -= int(floor(float(pc.anchororigin.z) + pc.anchorpos.z)) >> 4;
+        floorx = clamp(floorx + 16, 0, 31); // 钳制负值
+        floorz = clamp(floorz + 16, 0, 31);
+
+        uint64_t Addr = pc.HeightMapAddr;
+        Addr += (floorx + floorz * 32) * 512; // 大hash解码
+
+        int2 chunkposxz = hitPos.xz & 15; // 按位与，00001111，小hash解码
+        Addr += (chunkposxz.x + chunkposxz.y * 16) * 2;
+
+        int16_t MaxHeight = *(int16_t*)Addr;
+        payload.outdoor = float(MaxHeight) <= float(hitPos.y) + 0.4;
+    }else{
+        payload.outdoor = false; //目前只有雨天用到
+    }
 }

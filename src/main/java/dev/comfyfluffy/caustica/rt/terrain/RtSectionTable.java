@@ -162,7 +162,7 @@ final class RtSectionTable {
 
     void write(SectionGeom geom) {
         long offset = (long) geom.slot * SECTION_ENTRY_BYTES;
-        long base = buffer.mapped + offset;
+        long base = buffer.mapped + offset;    //buffer的数据写入
         MemoryUtil.memPutLong(base, geom.material.deviceAddress);
         MemoryUtil.memPutLong(base + 8, geom.uvs.deviceAddress);
         MemoryUtil.memPutInt(base + 16, geom.triBase[0]);
