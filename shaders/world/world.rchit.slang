@@ -376,7 +376,7 @@ void main(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr) 
     if (material == MATERIAL_WATER && entering) {
         payload.flags |= PAYLOAD_WATER_ENTERING;
     }
-
+    /*
     if(pc.Rain > 0.001) {
         int3 hitPos = int3(floor(WorldRayOrigin() + WorldRayDirection() * RayTCurrent() + float3(pc.anchororigin))); // 击中点绝对世界坐标，截断用floor防止负值和正值结果偏差
 
@@ -397,5 +397,5 @@ void main(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr) 
         payload.outdoor = float(MaxHeight) <= float(hitPos.y) + 0.4;
     }else{
         payload.outdoor = false; //目前只有雨天用到
-    }
+    }*/
 }

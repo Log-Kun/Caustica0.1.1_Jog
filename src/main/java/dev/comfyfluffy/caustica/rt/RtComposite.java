@@ -723,10 +723,9 @@ public final class RtComposite {
         materialEpochTraceGate = true;
 
         worldPipeline.setSampler3D(Rt3DTextures.getSampler3D(ctx), 9); // 绑定到9号
-        worldPipeline.setTexture3D(
-                Rt3DTextures.getTexture3D(ctx, "textures/cloud_noise_3d_128.png", VK10.VK_FORMAT_R8_UNORM), 10); // 绑定到10号
-        worldPipeline.setTexture3D(
-                Rt3DTextures.getTexture3D(ctx, "textures/water_wave_3d_128.png", VK10.VK_FORMAT_R8G8_UNORM), 11); // 绑定到11号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/cloud_noise_3d_128.png", VK10.VK_FORMAT_R8_UNORM), 10); // 绑定到10号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/water_wave_3d_128.png", VK10.VK_FORMAT_R8G8_UNORM), 11); // 绑定到11号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/ripple_128.png", VK10.VK_FORMAT_R8G8_UNORM), 12); // 绑定到12号
     }
 
     private void refreshMaterialBindingsIfNeeded(RtContext ctx) {
@@ -1127,7 +1126,7 @@ public final class RtComposite {
 
             float Rain = level.getRainLevel(10);
             
-            if(Rain > 0.001){
+            /*if(Rain > 0.001){
                 // 高度获取部分，用于雨天室内外检测（outdoor）
                 if (HeightMapBuffer == null) { // 仅在第一次创建
                     HeightMapBuffer = ctx.createBuffer((long) 512 * 1024, VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, "rt HeightMapBuffer"); // 一个区块 512 ，16区块视距包含 1024 区块
@@ -1153,14 +1152,14 @@ public final class RtComposite {
                     }
                     HeightMapBuffer.flush(0, (long) 512 * 1024);
                 }
-            }
+            }*/
 
             new PushConstantsData( // 直接推送部分，PC传参有大小限制，所以需要有 worldpush
                     pushBuf.deviceAddress,
                     terrain.tableAddress(),
                     fe.geomTableAddr(),
                     RtMaterialRegistry.INSTANCE.tableAddress(),
-                    HeightMapBuffer.deviceAddress, // 最高方块y坐标 用于判断雨天遮挡
+                    //HeightMapBuffer.deviceAddress, // 最高方块y坐标 用于判断雨天遮挡
                     RtLightManager.HandLightBuffer.deviceAddress, // 手持光源缓冲区地址
                     RtLightManager.lightBuffer.deviceAddress, // 点光源缓冲区地址
                     (int) lightManager.currentLightCount, // 光源数量，就一个int，直接传参了，不传内存地址了

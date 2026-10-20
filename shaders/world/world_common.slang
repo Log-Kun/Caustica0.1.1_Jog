@@ -45,7 +45,7 @@ public struct PushConstants {
     public uint64_t   tableAddr;           // 区段表
     public uint64_t   entityTableAddr;     // 实体几何表
     public uint64_t   materialTableAddr;
-    public uint64_t   HeightMapAddr;
+    //public uint64_t   HeightMapAddr;
     public uint64_t   HandLightBufferAddr; // 手持光源
     public uint64_t   lightBufferAddr;     // 光源缓冲区地址
     public uint       lightCount;          // 光源数量
@@ -67,7 +67,7 @@ public struct BreakEntry {
 };
 
 // Radiance-ray payload (location 0). Member order and types are a cross-stage ABI.
-// 辐射光线载荷（位置 0）。成员顺序和类型构成跨阶段 ABI。注意这里要尽量小一些！从寄存器溢出会很慢！
+// slang互相用的一组数据。成员顺序和类型构成跨阶段 ABI。注意这里要尽量小一些！从寄存器溢出会很慢！
 public struct Payload {
     public float3 albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
     public float3 normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
@@ -79,7 +79,7 @@ public struct Payload {
     public uint   emissionSss;     // packHalf2x16(emission, sss)；packHalf2x16(发光度，sss)
     public uint   iorTransmission; // packHalf2x16(IOR, transmission factor)；packHalf2x16(IOR，透射因子)
     public uint   rayCone;         // packHalf2x16(width, spread)；packHalf2x16(宽度，扩散度)
-    public bool   outdoor;
+    //public bool   outdoor;
 };
 
 public static const uint PAYLOAD_SHOW_CELESTIAL = 4u;

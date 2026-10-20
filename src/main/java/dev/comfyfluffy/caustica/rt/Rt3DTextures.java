@@ -117,7 +117,7 @@ public class Rt3DTextures {
                         int pix = pixels[y * width + z * size + x];
                         MemoryUtil.memPutByte(staging.mapped + i, (byte)(pix & 0x000000FF));              //R
                         MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 8) & 0x000000FF));   //G
-                        MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 16) & 0x000000FF));  //B
+                        MemoryUtil.memPutByte(staging.mapped + i + 2, (byte)((pix >> 16) & 0x000000FF));  //B
                         i += 3;
                     }
                 }
@@ -128,10 +128,10 @@ public class Rt3DTextures {
                 for (int y = 0; y < size; y++) {
                     for (int x = 0; x < size; x++) {
                         int pix = pixels[y * width + z * size + x];
-                        MemoryUtil.memPutByte(staging.mapped + i, (byte)(pix & 0xFF));              //R
-                        MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 8) & 0xFF));   //G
-                        MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 16) & 0xFF));  //B
-                        MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 24) & 0xFF));  //A
+                        MemoryUtil.memPutByte(staging.mapped + i, (byte)(pix & 0x000000FF));              //R
+                        MemoryUtil.memPutByte(staging.mapped + i + 1, (byte)((pix >> 8) & 0x000000FF));   //G
+                        MemoryUtil.memPutByte(staging.mapped + i + 2, (byte)((pix >> 16) & 0x000000FF));  //B
+                        MemoryUtil.memPutByte(staging.mapped + i + 3, (byte)((pix >> 24) & 0x000000FF));  //A
                         i += 4;
                     }
                 }

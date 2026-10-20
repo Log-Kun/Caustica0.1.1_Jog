@@ -15,9 +15,10 @@ import world_common;
 [[vk::binding(8, 0)]] [format("rg16f")]   RWTexture2D<float2> gSpecMotion;
 
 //这里用描述符集，有硬件插值等
-[[vk::binding(9, 0)]] SamplerState noiseSampler; //对应Java侧的 VK_DESCRIPTOR_TYPE_SAMPLER
+[[vk::binding(9, 0)]] SamplerState Sampler3D; //对应Java侧的 VK_DESCRIPTOR_TYPE_SAMPLER
 [[vk::binding(10, 0)]] Texture3D<float> CloudnoiseTex3D; //这里名字无所谓，前面的地方才是和Java对接的接口， RtComposite.bindWorldTextures() 中用 RtPipeline.setNoiseImage()  绑定了这个纹理到 binding 10
 [[vk::binding(11, 0)]] Texture3D<float2> WaternoiseTex3D;
+[[vk::binding(12, 0)]] Texture3D<float2> RippleTex3D;
 
 [[vk::push_constant]] PushConstants pc; //用pc模式推送常量快
 
@@ -96,14 +97,14 @@ static float3 gv_motionObjDisp;
 float cloudDensity(float3 p, float Rain) {
     p.xz *= 0.0014;
     p.y = 0.2 * (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
-    return clamp(CloudnoiseTex3D.SampleLevel(noiseSampler, p, 0.0) * 3. - 1.5 + Rain * 0.3, 0., 1.);
+    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 3. - 1.5 + Rain * 0.3, 0., 1.);
 }
 
 // 生成水面法线
 float3 get_water_normal(float2 worldXZ) {
     float2 uv_xz = worldXZ / 32.0;
     float uv_t = fmod(worldPush.Time, 24.0) / 24.0;
-    float2 rg = WaternoiseTex3D.SampleLevel(noiseSampler, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
+    float2 rg = WaternoiseTex3D.SampleLevel(Sampler3D, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
     return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
 }
 
@@ -236,16 +237,16 @@ float primaryRayConeSpread(float2 ndc, float2 size, float3 dir) {
 }
 
 // 常用采样函数：漫反射余弦采样、天体圆盘采样和 GGX VNDF。
-float3 cosineDir(float3 n, inout uint s) {
+float3 cosineDir(float3 normal, inout uint s) {
     float u1 = rndf(s);
     float u2 = rndf(s);
     float r = sqrt(u1);
     float phi = 6.2831853 * u2;
-    float3 t = normalize(abs(n.x) > 0.9 ? float3(0., 1., 0.) : float3(1., 0., 0.));
-    float3 b = normalize(cross(n, t));
-    t = cross(b, n);
+    float3 t = normalize(abs(normal.x) > 0.9 ? float3(0., 1., 0.) : float3(1., 0., 0.));
+    float3 b = normalize(cross(normal, t));
+    t = cross(b, normal);
     float3 local = float3(r * cos(phi), r * sin(phi), sqrt(max(0., 1. - u1)));
-    return normalize(local.x * t + local.y * b + local.z * n);
+    return normalize(local.x * t + local.y * b + local.z * normal);
 }
 
 float3 sampleDisc(float3 axis, float halfAngle, inout uint s) {
@@ -259,11 +260,11 @@ float3 sampleDisc(float3 axis, float halfAngle, inout uint s) {
     return normalize(axis + u * right + v * up);
 }
 
-float3 sampleGGXVNDF(float3 n, float3 ve, float rough, inout uint s) {
-    float3 t = normalize(abs(n.x) > 0.9 ? float3(0., 1., 0.) : float3(1., 0., 0.));
-    float3 b = normalize(cross(n, t));
-    t = cross(b, n);
-    float3 Ve = float3(dot(ve, t), dot(ve, b), dot(ve, n));
+float3 sampleGGXVNDF(float3 normal, float3 ve, float rough, inout uint s) {
+    float3 t = normalize(abs(normal.x) > 0.9 ? float3(0., 1., 0.) : float3(1., 0., 0.));
+    float3 b = normalize(cross(normal, t));
+    t = cross(b, normal);
+    float3 Ve = float3(dot(ve, t), dot(ve, b), max(0.001, dot(ve, normal))); // 重点：此处防止涟漪出现白点
     float a = rough * rough;
     float3 Vh = normalize(float3(a * Ve.x, a * Ve.y, Ve.z));
     float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
@@ -279,7 +280,7 @@ float3 sampleGGXVNDF(float3 n, float3 ve, float rough, inout uint s) {
     p2 = (1. - ss) * sqrt(1. - p1 * p1) + ss * p2;
     float3 Nh = p1 * T1 + p2 * T2 + sqrt(max(0., 1. - p1 * p1 - p2 * p2)) * Vh;
     float3 Ne = normalize(float3(a * Nh.x, a * Nh.y, max(0., Nh.z)));
-    return normalize(Ne.x * t + Ne.y * b + Ne.z * n);
+    return normalize(Ne.x * t + Ne.y * b + Ne.z * normal);
 }
 
 // 光追 SBT 和剔除标志。
@@ -355,16 +356,16 @@ float3 visibility_L(float3 origin, float3 dir, float rayL) {
     return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
 }
 
-float3 waterCelestialHighlight(float3 hitPos, float3 n, float3 viewDir, float3 bodyDir, float3 radiance, float F, float strength, float sharpness, float bias, float weight) {
+float3 waterCelestialHighlight(float3 hitPos, float3 normal, float3 viewDir, float3 bodyDir, float3 radiance, float F, float strength, float sharpness, float bias, float weight) {
     float bodyUp = clamp((bodyDir.y + 0.0625) / 0.125, 0., 1.);
     float3 halfDir = normalize(bodyDir + viewDir);
-    float term = clamp(dot(n, halfDir) * sharpness - bias, 0., 1.);
+    float term = clamp(dot(normal, halfDir) * sharpness - bias, 0., 1.);
     float mask = term * term;
     mask *= mask;
     if (mask <= 0. || bodyUp <= 0. || weight <= 0.) {
         return float3(0.);
     }
-    return radiance * F * mask * visibility(hitPos + n * SURF_BIAS, bodyDir) * bodyUp * weight * strength;
+    return radiance * F * mask * visibility(hitPos + normal * SURF_BIAS, bodyDir) * bodyUp * weight * strength;
 }
 
 // 运动向量辅助，用上一帧矩阵投影引导点。
@@ -374,9 +375,9 @@ float2 projectPrevNdc(float3 worldPos) {
 }
 
 float2 previousReflectionNdc(float3 surfacePos, float3 surfaceNormal, float3 reflectedWorldPos, float3 reflectedMotionPrev) {
-    float3 n = normalize(surfaceNormal);
+    float3 normal = normalize(surfaceNormal);
     float3 prevHit = reflectedWorldPos - reflectedMotionPrev;
-    float3 mirroredHit = prevHit - 2. * n * dot(prevHit - surfacePos, n);
+    float3 mirroredHit = prevHit - 2. * normal * dot(prevHit - surfacePos, normal);
     return projectPrevNdc(mirroredHit);
 }
 
@@ -385,14 +386,14 @@ float2 specularReflectionMotion(float3 surfacePos, float3 primaryDir, float2 cur
         return float2(0.);
     }
 
-    float3 n = normalize(gv_normal);
-    float3 specDir = reflect(primaryDir, n);
+    float3 normal = normalize(gv_normal);
+    float3 specDir = reflect(primaryDir, normal);
 
     payload.hitT = -1.;
     PAYLOAD_SET_TRACE_STATE(false,
             max(length(surfacePos - pc.anchorpos) * primaryConeSpread, RAY_CONE_MIN_WIDTH),
             max(primaryConeSpread, RAY_CONE_MIN_SPREAD));
-    traceRadianceReordered(CULL_SECONDARY, surfacePos + n * SURF_BIAS, RAY_TMIN, specDir);
+    traceRadianceReordered(CULL_SECONDARY, surfacePos + normal * SURF_BIAS, RAY_TMIN, specDir);
 
     float3 reflectedHit;
     float3 reflectedMotionPrev;
@@ -404,7 +405,7 @@ float2 specularReflectionMotion(float3 surfacePos, float3 primaryDir, float2 cur
         reflectedHit = surfacePos + specDir * 1.0e6;
         reflectedMotionPrev = float3(0.);
     }
-    float2 prevNdc = previousReflectionNdc(surfacePos, n, reflectedHit, reflectedMotionPrev);
+    float2 prevNdc = previousReflectionNdc(surfacePos, normal, reflectedHit, reflectedMotionPrev);
     return (prevNdc - currentNdc) * 0.5 * size;
 }
 
@@ -535,7 +536,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         PAYLOAD_SET_TRACE_STATE(showCelestial, rayConeWidth, rayConeSpread);
         traceRadianceReordered(bounce == 0 ? CULL_PRIMARY : CULL_SECONDARY, ro, 0., rd);
         if(bounce <= 1) {
-            Rain = pc.Rain * float(payload.outdoor);
+            Rain = pc.Rain;
             if (!inWater){
                 { // 体积光部分 近地薄雾：只处理空气中的一小段，水下衰减交给水体吸收。
                     // 近地体积雾参数，与云层是两套独立积分。
@@ -554,7 +555,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
                     float t = 0.;
                     while (t < segmentLength) { //开启体积光
-                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.25 + 0.4) * (1. + t * 2.5)
+                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.1 + 0.3) * (1. + t)
                         float stepLen = min(volumeStepLen, segmentLength - t);
                         float3 volumePos = ro + rd * (t + 0.5 * stepLen);
                         float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
@@ -730,7 +731,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             break;
         }
 
-        float3 n = payload.normal;
+        float3 normal = payload.normal;
         float3 hitPos = ro + rd * payload.hitT;
         rayConeWidth = max(rayConeWidth + rayConeSpread * max(payload.hitT, 0.), RAY_CONE_MIN_WIDTH);
         uint material = PAYLOAD_MATERIAL;
@@ -744,10 +745,10 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             float3 glassTint = payload.albedo;
             float materialIor = max(PAYLOAD_IOR, 1.0e-3);
             float transmission = clamp(PAYLOAD_TRANSMISSION, 0., 1.);
-            float cosI = clamp(dot(-rd, n), 0., 1.);
+            float cosI = clamp(dot(-rd, normal), 0., 1.);
             float F = fresnelDielectric(cosI, 1., materialIor);
             if (bounce == 0) {
-                gv_normal = n;
+                gv_normal = normal;
                 gv_rough = clamp(PAYLOAD_ROUGHNESS, 0., 1.);
                 gv_specAlb = float3(F, F, F);
                 gv_albedo = glassTint;
@@ -757,11 +758,11 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 gv_motionObjDisp = payload.motionPrev;
             }
             if (rndf(seed) < F) {
-                rd = reflect(rd, n);
-                ro = hitPos + n * SURF_BIAS;
+                rd = reflect(rd, normal);
+                ro = hitPos + normal * SURF_BIAS;
             } else {
                 throughput *= glassTint * transmission;
-                ro = hitPos - n * GLASS_TRANSMIT_BIAS;
+                ro = hitPos - normal * GLASS_TRANSMIT_BIAS;
             }
             showCelestial = true;
             if (bounce >= rrStart) {
@@ -775,7 +776,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         // 粒子按近似双面薄片处理，可接收直射光并继续散射。
         if (material == MATERIAL_PARTICLE) {
             float3 albedo = payload.albedo;
-            gv_normal = n;
+            gv_normal = normal;
             gv_albedo = albedo;
             gv_specAlb = float3(0.);
             gv_rough = 1.;
@@ -790,16 +791,16 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 lightDir = sampleDisc(lightDir, lightHalfAngle, seed);
             }
 
-            float signedNdl = dot(n, lightDir);
+            float signedNdl = dot(normal, lightDir);
             float ndl = abs(signedNdl);
             if (ndl > 0.) {
-                float3 shadowOrigin = hitPos + (signedNdl >= 0. ? n : -n) * SURF_BIAS;
+                float3 shadowOrigin = hitPos + (signedNdl >= 0. ? normal : -normal) * SURF_BIAS;
                 { float3 vis = visibility(shadowOrigin, lightDir); if (max(vis.r, max(vis.g, vis.b)) > 0.) diffuse += throughput * albedo * INV_PI * worldPush.lightRadiance.xyz * ndl * vis; }
             }
 
             throughput *= albedo;
-            ro = hitPos + n * SURF_BIAS;
-            rd = cosineDir(n, seed);
+            ro = hitPos + normal * SURF_BIAS;
+            rd = cosineDir(normal, seed);
             rayConeSpread = max(rayConeSpread, RAY_CONE_DIFFUSE_SPREAD);
             showCelestial = false;
             continue;
@@ -813,22 +814,38 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             bool materialEntering = PAYLOAD_WATER_ENTERING;
 
             if (waterWaves) {
-                float2 waveXZ = hitPos.xz + float2(pc.anchororigin.xz) + (abs(n.y) < 0.5 ? hitPos.y : 0.);
-                n = get_water_normal(waveXZ) * (n.y < 0. ? -1. : 1.);
+                float2 waveXZ = hitPos.xz + float2(pc.anchororigin.xz) + (abs(normal.y) < 0.5 ? hitPos.y : 0.);
+                normal = get_water_normal(waveXZ) * (normal.y < 0. ? -1. : 1.);
+                    if(bounce == 0 && normal.y > 0.001 && Rain > 0.001) {
+                    // 从命中点稍微偏移，避免自交
+                    RayDesc r;
+                    r.Origin = hitPos + normal * 0.01;
+                    r.Direction = normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 ));
+                    r.TMin = 0.001;
+                    r.TMax = 128.0;   // 128 格内没遮挡就算露天
+                    
+                    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> q;
+                    q.TraceRayInline(topLevelAS, RAY_FLAG_NONE, 0xFF, r);
+                    q.Proceed();
+                    
+                    float wet = Rain * float(q.CommittedStatus() != COMMITTED_TRIANGLE_HIT);
+                    float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, worldPush.Time * 0.6), 0.0) * 2. - 1.;
+                    normal = normalize(lerp(normal, float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y), wet * 0.3));
+                }
             }
             waterExt = waterExtinction(payload.albedo);
-            float cosI = clamp(dot(-rd, n), 0., 1.);
+            float cosI = clamp(dot(-rd, normal), 0., 1.);
             float etaI = inWater ? materialIor : 1.;
             float etaT = inWater ? 1. : materialIor;
             float F = fresnelDielectric(cosI, etaI, etaT);
             if (bounce == 0) {
-                gv_normal = n;
+                gv_normal = normal;
                 gv_rough = clamp(PAYLOAD_ROUGHNESS, 0., 1.);
                 gv_hitCamRel = hitPos - pc.anchorpos;
 
                 float3 refractedAlbedo;
                 float3 refractedSpecAlbedo;
-                refractedGuideHit(hitPos, rd, n, inWater, materialIor, rayConeWidth, rayConeSpread,
+                refractedGuideHit(hitPos, rd, normal, inWater, materialIor, rayConeWidth, rayConeSpread,
                         gv_motionHitCamRel, gv_motionObjDisp,
                         gv_motionUseRefracted, refractedAlbedo, refractedSpecAlbedo);
                 gv_albedo = refractedAlbedo;
@@ -837,18 +854,18 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 //水面高光补偿部分
                 float day = clamp(worldPush.sunDir.w, 0., 1.);
                 float3 viewDir = normalize(-rd);
-                diffuse += throughput * waterCelestialHighlight(hitPos, n, viewDir, normalize(worldPush.sunDir.xyz),
+                diffuse += throughput * waterCelestialHighlight(hitPos, normal, viewDir, normalize(worldPush.sunDir.xyz),
                         worldPush.lightRadiance.xyz, F, WATER_SUN_REFLECT_STRENGTH, 400., 399., day);
-                diffuse += throughput * waterCelestialHighlight(hitPos, n, viewDir, normalize(worldPush.moonDir.xyz),
+                diffuse += throughput * waterCelestialHighlight(hitPos, normal, viewDir, normalize(worldPush.moonDir.xyz),
                         worldPush.lightRadiance.xyz * float3(0.55, 0.65, 1.), F, WATER_MOON_REFLECT_STRENGTH, 320., 319., 1. - day);
             }
             if (rndf(seed) < F) {
-                rd = reflect(rd, n);
-                ro = hitPos + n * SURF_BIAS;
+                rd = reflect(rd, normal);
+                ro = hitPos + normal * SURF_BIAS;
             } else {
-                rd = refract(rd, n, etaI / etaT);
+                rd = refract(rd, normal, etaI / etaT);
                 throughput *= transmission;
-                ro = hitPos - n * SURF_BIAS;
+                ro = hitPos - normal * SURF_BIAS;
 
                 inWater = materialEntering;
             }
@@ -866,90 +883,101 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         // 常规不透明表面：读取材质参数，计算直接光照和间接反射。
         float3 albedo = payload.albedo;
         float sss = PAYLOAD_SSS;
-        float3 p = hitPos + n * SURF_BIAS;
+        float3 p = hitPos + normal * SURF_BIAS;
         float3 v = -rd;
 
         float rough = pbr ? clamp(PAYLOAD_ROUGHNESS, 0., 1.) : 1.; //读取PBR参数
         float metal = pbr ? clamp(PAYLOAD_METALNESS, 0., 1.) : 0.;
-        if(n.y > 0.001 && Rain > 0.001) {
-            rough = lerp(rough, 0., Rain);
-            metal = max(metal, Rain * 0.5);
+        float3 F0 = pbr ? payload.f0 : lerp(float3(0.04), albedo, metal);
+        if(bounce <= 1 && normal.y > 0.001 && Rain > 0.001 && ! inWater) {
+            RayDesc r;
+            r.Origin = hitPos - normal * 0.0001;
+            r.Direction = normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 ));
+            r.TMin = 0.0002;
+            r.TMax = 128.0;   // 128 格内没遮挡就算露天
+            
+            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> q;
+            q.TraceRayInline(topLevelAS, RAY_FLAG_NONE, 0xFF, r);
+            q.Proceed();
+            
+            float wet = Rain * float(q.CommittedStatus() != COMMITTED_TRIANGLE_HIT);
+            rough = lerp(rough, 0.05, wet);
+            metal = max(metal, 0.8 * wet);
+            F0 = lerp(F0, albedo * 0.5, wet);
+            float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, worldPush.Time * 0.6), 0.0) * 2. - 1.;
+            normal = lerp(normal, normalize(float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y)), wet);
         }
         float3 diffAlb = albedo * (1. - metal);
 
 
-        float3 F0 = pbr ? payload.f0 : lerp(float3(0.04, 0.04, 0.04), albedo, metal);
 
         if (bounce == 0) {
-            // ═══════════════════════════════════════════════════
-            // 人工光源（点光源）直接光照 + 阴影
-            // ═══════════════════════════════════════════════════
-            // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
-            float3 lightooff = 0.5 - hitPos + sampleCubeSurface(seed)*0.7;
-            for (int li = 0; li < pc.lightCount; li++) {
-                PointLight PointLight = loadPointLight(li);
 
-                float3 PointLightDir = float3(PointLight.position) + lightooff;
-                float PointLightLength = length(PointLightDir);
-                float PointLightStrength = exp(-PointLightLength);
-                if (PointLightStrength < 0.01) continue;
-                PointLightDir /= PointLightLength;
+            { // 体积面光源
+                float3 lightooff = 0.5 - hitPos + sampleCubeSurface(seed)*0.7; // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
+                for (int li = 0; li < pc.lightCount; li++) {
+                    PointLight PointLight = loadPointLight(li);
 
-                float pointNdl = dot(n, PointLightDir);
-                if (pointNdl <= 0.) continue;
+                    float3 PointLightDir = float3(PointLight.position) + lightooff;
+                    float PointLightLength = length(PointLightDir);
+                    float PointLightStrength = exp(-PointLightLength);
+                    if (PointLightStrength < 0.01) continue;
+                    PointLightDir /= PointLightLength;
 
-                float3 pointVis = visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0));
-                if (max(pointVis.r, max(pointVis.g, pointVis.b)) <= 0.01) continue;
-                
-                
-                // 复用和太阳光相同的 BRDF 计算
-                float3 pointBrdf = diffAlb * INV_PI;
-                if (pbr) {
-                    float3 h = normalize(PointLightDir + v);
-                    float ndh = max(0., dot(n, h));
-                    float ndv = dot(n, v);
-                    float vdh = max(0., dot(v, h));
-                    float D = ggxD(ndh, rough);
-                    float G = ggxG1(ndv, rough) * ggxG1(pointNdl, rough);
-                    float3 F = fresnelSchlick(vdh, F0);
-                    pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
+                    float ndl = dot(normal, PointLightDir);
+                    float ndv = dot(normal, v);
+                    if (ndl <= 0. || ndv <= 0.001) continue;
+
+                    float3 pointVis = visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0));
+                    if (pointVis.r <= 0.01 && pointVis.g <= 0.01 && pointVis.b <= 0.01) continue;
+                    
+                    float3 brdf = diffAlb * INV_PI;
+                    if (pbr) {
+                        float3 h = normalize(PointLightDir + v);
+                        float ndh = max(0., dot(normal, h));
+                        float vdh = max(0., dot(v, h));
+                        float D = ggxD(ndh, rough);
+                        float G = ggxG1(ndv, rough) * ggxG1(ndl, rough);
+                        float3 F = fresnelSchlick(vdh, F0);
+                        brdf += (D * G) * F / (4. * ndv * ndl);
+                    }
+                    
+                    diffuse += ndl * throughput * PointLightStrength * brdf * pointVis * PointLight.color;
                 }
-                
-                diffuse += pointNdl * throughput * PointLightStrength * pointBrdf * pointVis * PointLight.color;
             }
 
-            // 手持光源
-            HeadLight HeadLightInfo = loadHeadLight();
-            float3 HeadLightDir = HeadLightInfo.position - hitPos;
-            float HeadLightLength = length(HeadLightDir);
-            HeadLightDir /= HeadLightLength;
+            
+            { // 手持光源
+                HeadLight HeadLightInfo = loadHeadLight();
+                float3 HeadLightDir = HeadLightInfo.position - hitPos;
+                float HeadLightLength = length(HeadLightDir);
+                HeadLightDir /= HeadLightLength;
 
-            float3 HandLightColor = HeadLightInfo.color * exp(-HeadLightLength * 0.4) * throughput * 10.; //payload.hitT 是沿光线的距离，不是以玩家头为原点的坐标系！
+                float3 HandLightColor = HeadLightInfo.color * exp(-HeadLightLength * 0.4) * throughput * 10.; //payload.hitT 是沿光线的距离，不是以玩家头为原点的坐标系！
 
-            if(HandLightColor.r > 0.0001 || HandLightColor.g > 0.0001 || HandLightColor.b > 0.0001) {
-                // 复用和太阳光相同的 BRDF 计算
-                float pointNdl = dot(n, HeadLightDir);
-                float3 pointBrdf = diffAlb * INV_PI;
-                if (pbr && pointNdl > 0.) {
-                    float3 h = normalize(HeadLightDir + v);
-                    float ndh = max(0., dot(n, h));
-                    float ndv = dot(n, v);
-                    float vdh = max(0., dot(v, h));
-                    float D = ggxD(ndh, rough);
-                    float G = ggxG1(ndv, rough) * ggxG1(pointNdl, rough);
-                    float3 F = fresnelSchlick(vdh, F0);
-                    pointBrdf += (D * G) * F / (4. * ndv * pointNdl);
+                if(HandLightColor.r > 0.0001 || HandLightColor.g > 0.0001 || HandLightColor.b > 0.0001) {
+                    float3 brdf = diffAlb * INV_PI;
+                    float ndl = dot(normal, HeadLightDir);
+                    float ndv =  dot(normal, v);
+                    if (pbr && ndl > 0. && ndv > 0.001) {
+                        float3 h = normalize(HeadLightDir + v);
+                        float ndh = max(0., dot(normal, h));
+                        float vdh = max(0., dot(v, h));
+                        float D = ggxD(ndh, rough);
+                        float G = ggxG1(ndv, rough) * ggxG1(ndl, rough);
+                        float3 F = fresnelSchlick(vdh, F0);
+                        brdf += (D * G) * F / (4. * ndv * ndl);
+                    }
+                    
+                    diffuse += ndl * brdf * HandLightColor;
                 }
-                
-                diffuse += pointNdl * pointBrdf * HandLightColor;
             }
-            // ═══════════════════════════════════════════════════
 
 
-            gv_normal = n;
+            gv_normal = normal;
             gv_albedo = pbr ? diffAlb : albedo;
             gv_rough = rough;
-            gv_specAlb = pbr ? rrSpecularAlbedo(F0, rough * rough, dot(n, v)) : float3(0.);
+            gv_specAlb = pbr ? rrSpecularAlbedo(F0, rough * rough, dot(normal, v)) : float3(0.);
             gv_hitCamRel = ro + rd * payload.hitT - pc.anchorpos;
             gv_motionHitCamRel = gv_hitCamRel;
             gv_motionUseRefracted = false;
@@ -964,19 +992,19 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         float lightHalfAngle = worldPush.lightDir.w;
         if (lightHalfAngle > 0.) lightDir = sampleDisc(lightDir, lightHalfAngle, seed);
 
-        float ndl = max(0., dot(n, lightDir));
-        if (ndl > 0.) {
+        float ndl = dot(normal, lightDir);
+        float ndv = dot(normal, v);
+        if (ndl > 0. && ndv > 0.001) {
             float3 vis = visibility(p, lightDir);
 
             if (inWater && waterWaves && shadowVis.a > 0.01) {
                 vis *= waterCaustic(p + lightDir * shadowVis.a, lightDir, shadowVis.a);
             }
-            if (max(vis.r, max(vis.g, vis.b)) > 0.01) {
+            if (vis.r > 0.01 || vis.g > 0.01 || vis.b > 0.01) {
                 float3 brdf = diffAlb * INV_PI;
                 if (pbr) {
                     float3 h = normalize(lightDir + v);
-                    float ndh = max(0., dot(n, h));
-                    float ndv = dot(n, v);
+                    float ndh = max(0., dot(normal, h));
                     float vdh = max(0., dot(v, h));
                     float D = ggxD(ndh, rough);
                     float G = ggxG1(ndv, rough) * ggxG1(ndl, rough);
@@ -990,9 +1018,9 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
         // 薄表面背光透射，只在前几次反弹计算以控制开销。
         if (sss > 0.001 && bounce <= MAX_SSS_BOUNCE) {
-            float backNdl = max(0., dot(-n, lightDir));
+            float backNdl = dot(-normal, lightDir);
             if (backNdl > 0.01) {
-                float3 visB = visibility(hitPos - n * SURF_BIAS, lightDir);
+                float3 visB = visibility(hitPos - normal * SURF_BIAS, lightDir);
 
                 if (inWater && waterWaves && shadowVis.a > 0.01) {
                     visB *= waterCaustic(hitPos + lightDir * shadowVis.a, lightDir, shadowVis.a);
@@ -1008,9 +1036,9 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         if (pbr) {
             float ps = clamp(luminance(F0) / (luminance(F0) + luminance(diffAlb)), 0.1, 0.9);
             if (rndf(seed) < ps) { // 镜面反射
-                float3 h = sampleGGXVNDF(n, v, rough, seed);
+                float3 h = sampleGGXVNDF(normal, v, rough, seed);
                 float3 l = reflect(rd, h);
-                float ndl2 = dot(n, l);
+                float ndl2 = dot(normal, l);
                 if (ndl2 <= 0.01)break;
 
                 float3 F = fresnelSchlick(max(0., dot(v, h)), F0);
@@ -1022,7 +1050,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             } else { // 漫反射
                 throughput *= diffAlb / (1. - ps);
                 ro = p;
-                rd = cosineDir(n, seed);
+                rd = cosineDir(normal, seed);
                 rayConeSpread = max(rayConeSpread, RAY_CONE_DIFFUSE_SPREAD);
                 showCelestial = false;
             }
@@ -1030,7 +1058,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             throughput *= albedo;
             showCelestial = false;
             ro = p;
-            rd = cosineDir(n, seed);
+            rd = cosineDir(normal, seed);
             rayConeSpread = max(rayConeSpread, RAY_CONE_DIFFUSE_SPREAD);
         }
 

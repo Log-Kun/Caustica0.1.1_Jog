@@ -56,6 +56,8 @@ public class RtLightManager {
         LIGHT_COLORS.put(Blocks.TORCH, new float[] { 0.89f, 0.56f, 0.34f }); // 火焰橙 #f39a5e, Lv14
         LIGHT_COLORS.put(Blocks.WALL_TORCH, new float[] { 0.89f, 0.56f, 0.34f }); // 火焰橙, Lv14
         LIGHT_COLORS.put(Blocks.SOUL_TORCH, new float[] { 0.13f, 0.53f, 0.67f }); // 灵魂青, Lv10
+        LIGHT_COLORS.put(Blocks.COPPER_TORCH, new float[] { 0.52f, 1.0f, 0.54f });      // 铜绿，Lv10
+        LIGHT_COLORS.put(Blocks.COPPER_WALL_TORCH, new float[] { 0.52f, 1.0f, 0.54f }); // 铜绿（墙上），Lv10  
         LIGHT_COLORS.put(Blocks.SOUL_WALL_TORCH, new float[] { 0.13f, 0.53f, 0.67f }); // 灵魂青, Lv10
         LIGHT_COLORS.put(Blocks.REDSTONE_TORCH, new float[] { 0.36f, 0.08f, 0.06f }); // 红石红 #c32c1f, Lv7
         LIGHT_COLORS.put(Blocks.REDSTONE_WALL_TORCH, new float[] { 0.36f, 0.08f, 0.06f }); // 红石红, Lv7

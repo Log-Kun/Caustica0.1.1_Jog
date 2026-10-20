@@ -143,7 +143,7 @@ public final class RtPipeline {
 
             LongBuffer layouts = stack.mallocLong(RING); //获取布局句柄！
                 {
-                    VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(12, stack); //索引0-11，共12个绑定
+                    VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(13, stack); //索引0-11，共13个绑定
                         binds.get(0).binding(0).descriptorType(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
                         binds.get(1).binding(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
@@ -168,6 +168,8 @@ public final class RtPipeline {
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
                         binds.get(11).binding(11).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //水面噪声纹理
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+                        binds.get(12).binding(12).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //涟漪法线纹理
+                                .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
 
                     
                         { //往pLayout里存布局句柄！
@@ -190,7 +192,7 @@ public final class RtPipeline {
                         poolSizes.get(1).type(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE).descriptorCount(RING * 7);      //输出图像，outImage到gSpecMotion共7个，在rgen里
                         poolSizes.get(2).type(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(RING); //方块图集
                         poolSizes.get(3).type(VK10.VK_DESCRIPTOR_TYPE_SAMPLER).descriptorCount(RING);                //噪声采样器
-                        poolSizes.get(4).type(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).descriptorCount(RING * 2);          //噪声纹理
+                        poolSizes.get(4).type(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).descriptorCount(RING * 3);          //纹理3个
 
                     LongBuffer pPool = stack.mallocLong(1); //在内存上临时创建1个long，用于存句柄
                         { //往pPool里存池句柄！
@@ -203,7 +205,7 @@ public final class RtPipeline {
                 }
 
 
-            long[] sets = new long[RING]; //获取描述符集！ 描述符集依赖布局句柄和池句柄，所以最后获取
+            long[] sets = new long[RING]; //拼装成描述符集！ 描述符集依赖布局句柄和池句柄，所以最后获取
                 {
                     LongBuffer pSets = stack.mallocLong(RING); //长度不一样，不能用原来的p薅信息了。pSets为了承接VK10的输出，必须在原生内存上创建。sets是java堆上的数组，由Java类（this.descriptorSets）决定该变量是否存活，方便后续使用
                     VkDescriptorSetAllocateInfo dsai = VkDescriptorSetAllocateInfo.calloc(stack).sType$Default().descriptorPool(pool).pSetLayouts(layouts);
