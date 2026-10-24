@@ -1,6 +1,6 @@
 // Shared definitions for all ray-tracing stages. The generateShaderRecords task generates typed Java
 // records and serializers from Slang reflection.
-// 所有光线追踪阶段共用的定义。****************************************************generateShaderRecords 任务会根据 Slang 反射生成带类型的 Java
+// 所有光线追踪阶段共用的定义。****************************************************generateShaderRecords 任务会根据 Slang 反射生成带类型的 Java，确保两侧布局一致（ABI一致）
 // 记录和序列化器。
 module world_common;
 
@@ -15,31 +15,8 @@ module world_common;
 // 明确启用该特性，否则保持使用 std430；此别名是唯一的布局切换点，生成的 Java 序列化始终与其同步。
 public typealias ConstPtr<T> = Ptr<T, Access.Read, AddressSpace.Device, Std430DataLayout>;
 
-// Per-frame world data, read through a 64-bit device address. WorldPushData.java is generated from this
-// reflected type, including its serializer, byte size, vector/matrix types, and fixed-array capacities.
-// 每帧世界数据，通过 64 位设备地址读取。WorldPushData.java 根据此反射类型生成，其中包括序列化器、
-// 字节大小、向量/矩阵类型以及固定数组容量。
-public struct WorldPush {
-    public float4x4   invViewProj;
-    public float4x4   prevViewProj;
-    public float3     camDelta;
-    public float2     jitter;
-    public uint       maxBounces;
-    public float4     sunDir;              // xyz true sun direction, w dayFactor 0..1；xyz 真实太阳方向，w 白昼因子 0..1
-    public float4     moonDir;             // xyz moon direction, w moonPhase (0 full .. 4 new)；xyz 月亮方向，w 月相（0 满月 .. 4 新月）
-    public float4     lightDir;            // xyz active NEE light dir, w square half-angle (rad)；xyz 当前 NEE 光源方向，w 正方形半角（弧度）
-    public float4     lightRadiance;       // xyz HDR light radiance, w star brightness；xyz HDR 光辐射，w 星体亮度
-    public float4     celestial;           // xyz celestial rotation axis, w star angle (rad)；xyz 天体旋转轴，w 星体角度（弧度）      
-    public float3     waterBiomeColor;     // 生物群系水体颜色
-    public float      Time;
-    public float4x4   curViewProj;         // forward camera-relative view-projection；前向相机相对视图投影矩阵
-    public uint       breakCount;
-    public int4       breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
-};
 
-// Push constant block. The hot inline lanes avoid dereferencing WorldPush for values that are read in
-// hit shaders or used for raygen control flow.
-// 推送常量块。热点内联字段可避免为读取命中着色器中的值或控制光线生成流程而解引用 WorldPush。
+// PC推送，直接推送
 public struct PushConstants {
     public uint64_t   worldPushAddr;
     public uint64_t   tableAddr;           // 区段表
@@ -58,8 +35,28 @@ public struct PushConstants {
     public int3       anchororigin;        // rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
 };
 
-// Radiance-ray payload (location 0). Member order and types are a cross-stage ABI.
-// slang互相用的一组数据。成员顺序和类型构成跨阶段 ABI。注意这里要尽量小一些！从寄存器溢出会很慢！
+
+// BDA推送，间接推送，用 worldPushAddr 查内存地址，解引用出信息，比较慢
+public struct WorldPush {
+    public float4x4   invViewProj;
+    public float4x4   prevViewProj;
+    public float3     camDelta;
+    public float2     jitter;
+    public uint       maxBounces;
+    public float4     sunDir;              // xyz true sun direction, w dayFactor 0..1；xyz 真实太阳方向，w 白昼因子 0..1
+    public float4     moonDir;             // xyz moon direction, w moonPhase (0 full .. 4 new)；xyz 月亮方向，w 月相（0 满月 .. 4 新月）
+    public float4     lightDir;            // xyz active NEE light dir, w square half-angle (rad)；xyz 当前 NEE 光源方向，w 正方形半角（弧度）
+    public float4     lightRadiance;       // xyz HDR light radiance, w star brightness；xyz HDR 光辐射，w 星体亮度
+    public float4     celestial;           // xyz celestial rotation axis, w star angle (rad)；xyz 天体旋转轴，w 星体角度（弧度）      
+    public float3     waterBiomeColor;     // 生物群系水体颜色
+    public float      Time;
+    public float4x4   curViewProj;         // forward camera-relative view-projection；前向相机相对视图投影矩阵
+    public uint       breakCount;
+    public int4       breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
+};
+
+
+// slang互相用的一组数据，定义也是Java自动生成。这一结构体被引用在所有slang里，所以 ABI 天然一致。注意这里要尽量小一些！从寄存器溢出会很慢！
 public struct Payload {
     public half3  albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
     public half3  normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者

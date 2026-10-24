@@ -143,12 +143,12 @@ public final class RtPipeline {
 
             LongBuffer layouts = stack.mallocLong(RING); //获取布局句柄！
                 {
-                    VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(13, stack); //索引0-11，共13个绑定
+                    VkDescriptorSetLayoutBinding.Buffer binds = VkDescriptorSetLayoutBinding.calloc(13, stack); // 索引0-11，共13个绑定
                         binds.get(0).binding(0).descriptorType(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
                         binds.get(1).binding(1).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-                        binds.get(2).binding(2).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                        binds.get(2).binding(2).descriptorType(VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) // 方块图集
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | (hasAhit ? VK_SHADER_STAGE_ANY_HIT_BIT_KHR : 0));
                         binds.get(3).binding(3).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
@@ -162,13 +162,13 @@ public final class RtPipeline {
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
                         binds.get(8).binding(8).descriptorType(VK10.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-                        binds.get(9).binding(9).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLER) //3D采样器
+                        binds.get(9).binding(9).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLER)             // 3D采样器
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-                        binds.get(10).binding(10).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //云噪声纹理
+                        binds.get(10).binding(10).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     // 云噪声纹理
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-                        binds.get(11).binding(11).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //水面噪声纹理
+                        binds.get(11).binding(11).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     // 水面噪声纹理
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-                        binds.get(12).binding(12).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     //涟漪法线纹理
+                        binds.get(12).binding(12).descriptorType(VK10.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)     // 涟漪法线纹理
                                 .descriptorCount(1).stageFlags(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
 
                     
@@ -399,7 +399,7 @@ public final class RtPipeline {
         }
     }
 
-    /** Bind the block albedo atlas into every ring slot. */
+    /** 在 binding2 写入帖图集 */
     public void setBlockAlbedoAtlas(long sampler, long imageView) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkDescriptorImageInfo.Buffer info = VkDescriptorImageInfo.calloc(1, stack);

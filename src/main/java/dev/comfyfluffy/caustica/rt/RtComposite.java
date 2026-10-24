@@ -692,7 +692,7 @@ public final class RtComposite {
         long sampler = atlasSampler(ctx);
         long atlasView = blockAlbedoAtlasView();
         boundBlockAlbedoAtlasHandle = atlasView; // remember what we bound so a reload can detect the new atlas
-        worldPipeline.setBlockAlbedoAtlas(sampler, atlasView);
+        worldPipeline.setBlockAlbedoAtlas(sampler, atlasView); // 在 binding2 里写入贴图集
         // Bindless slot 0 = fallback texture (the block atlas) so an entity whose
         // texture can't be
         // resolved samples something defined rather than an unbound (partially-bound)

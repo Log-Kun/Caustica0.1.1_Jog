@@ -76,7 +76,7 @@ static float3 gv_motionObjDisp;
 #define WATER_ABSORB_FLOOR float3(0.15, 0.1, 0.08)
 
 #define WATER_DAY_AMBIENT_SCALE 0.055
-#define WATER_NIGHT_AMBIENT_SCALE 0.01
+#define WATER_NIGHT_AMBIENT_SCALE 0.001
 #define WATER_SUN_REFLECT_STRENGTH 100.
 #define WATER_MOON_REFLECT_STRENGTH 80.
 
@@ -545,7 +545,6 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     float sigmaT = 0.012 + Rain * 0.01;
                     #define VOLUME_PHASE_G 0.72
                     #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
-                    #define VOLUME_STEP_LENGTH 0.4
                     #define VOLUME_SKY_LAYER_HEIGHT 24. // 天空最多步进次数 这部分主要是积分
                     #define VOLUME_LIGHT_DISTANCE 32.
                     // 沿视线可积分的最大距离：命中面处截断，未命中时用天空层高度限制。
@@ -555,9 +554,10 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
                     float viewTransmittance = 1.;
 
+                    float jitL = rndf(seed) * 0.18 + 0.2;
                     float t = 0.;
-                    while (t < segmentLength) { //开启体积光
-                        #define volumeStepLen VOLUME_STEP_LENGTH * (rndf(seed) * 0.1 + 0.3) * (1. + t)
+                    while ( t < segmentLength) { //开启体积光
+                        #define volumeStepLen jitL * (1. + t)
                         float stepLen = min(volumeStepLen, segmentLength - t);
                         float3 volumePos = ro + rd * (t + 0.5 * stepLen);
                         float3 segmentScatter = VOLUME_SCATTER_ALBEDO_TINT * (1. - exp(-sigmaT * stepLen));
