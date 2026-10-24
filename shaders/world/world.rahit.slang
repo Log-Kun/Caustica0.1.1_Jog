@@ -87,13 +87,13 @@ void main(inout float4 shadowVis, in BuiltInTriangleIntersectionAttributes attr)
         // model here so entity dielectrics transmit instead of becoming opaque shadow blockers.
         bool shadowRay = (RayFlags() & RAY_FLAG_SKIP_CLOSEST_HIT_SHADER) != 0u;
         if (instanceKind == ENTITY_BIT && shadowRay && materialHeader.model == MATERIAL_GLASS) {
-            float3 tint = lerp(float3(1.0, 1.0, 1.0),
-                    srgbToLinear(texel.rgb) * epr.tint.rgb, texel.a);
+            half3 tint = half3(lerp(float3(1.0, 1.0, 1.0),
+                    srgbToLinear(texel.rgb) * epr.tint.rgb, texel.a));
             shadowVis.rgb *= tint * clamp(materialHeader.params.w, 0.0, 1.0);
             IgnoreHit();
         }
         if (instanceKind == ENTITY_BIT && shadowRay && materialHeader.model == MATERIAL_WATER) {
-            float3 tint = srgbToLinear(texel.rgb) * epr.tint.rgb;
+            half3 tint = half3(srgbToLinear(texel.rgb) * epr.tint.rgb);
             shadowVis.rgb *= lerp(float3(1.0, 1.0, 1.0), tint, WATER_SHADOW_TINT)
                     * clamp(materialHeader.params.w, 0.0, 1.0);
             shadowVis.a = shadowVis.a < 0.0 ? RayTCurrent() : min(shadowVis.a, RayTCurrent());

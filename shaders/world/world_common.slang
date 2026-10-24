@@ -34,7 +34,7 @@ public struct WorldPush {
     public float      Time;
     public float4x4   curViewProj;         // forward camera-relative view-projection；前向相机相对视图投影矩阵
     public uint       breakCount;
-    public BreakEntry breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
+    public int4       breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
 };
 
 // Push constant block. The hot inline lanes avoid dereferencing WorldPush for values that are read in
@@ -58,22 +58,14 @@ public struct PushConstants {
     public int3       anchororigin;        // rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
 };
 
-// Block-breaking overlay entry: xyz = breaking block position (rebased, same space as gl_WorldRay*),
-// w = bindless entityAlbedoTex slot of the destroy-stage texture.
-// 方块破坏叠加层条目：xyz = 正在破坏的方块位置（已重定位，与 gl_WorldRay* 处于同一坐标空间），
-// w = 破坏阶段纹理在无绑定 entityAlbedoTex 中的槽位。
-public struct BreakEntry {
-    public int4 posSlot;
-};
-
 // Radiance-ray payload (location 0). Member order and types are a cross-stage ABI.
 // slang互相用的一组数据。成员顺序和类型构成跨阶段 ABI。注意这里要尽量小一些！从寄存器溢出会很慢！
 public struct Payload {
-    public float3 albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
-    public float3 normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
+    public half3  albedo;          // hit: block albedo. miss: sky radiance；命中：方块反照率；未命中：天空辐射
+    public half3  normal;          // hit: geometric normal, viewer-oriented；命中：几何法线，朝向观察者
     public float  hitT;            // >= 0 on hit, < 0 on miss；命中时 >= 0，未命中时 < 0
     public float3 motionPrev;      // per-vertex world displacement since last frame；从上一帧开始每个顶点的世界位移
-    public float3 f0;              // specular F0；镜面反射 F0
+    public half3  f0;              // specular F0；镜面反射 F0
     public uint   flags;           // bits 0..1 material, bit 2 celestial, bit 3 water-entering, bits 4..6 emission source；bits 0..1 材质，bit 2 天体，bit 3 进入水体，bits 4..6 发光源
     public uint   roughMetal;      // packHalf2x16(roughness, metalness)；packHalf2x16(粗糙度，金属度)
     public uint   emissionSss;     // packHalf2x16(emission, sss)；packHalf2x16(发光度，sss)

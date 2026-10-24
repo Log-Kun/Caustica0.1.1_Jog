@@ -698,11 +698,11 @@ public final class RtAccel {
                                                                            int vertexCount, int indexCount,
                                                                            boolean opaque, boolean allowUpdate) {
         VkAccelerationStructureGeometryKHR.Buffer geom = triangleGeometry(stack, vertexAddr, indexAddr,
-                vertexCount, opaque);
+                vertexCount, opaque); // 有三角形，顶点数据放在vertexAddr，索引放在indexAddr，总共vertexCount个顶点，
         VkAccelerationStructureBuildGeometryInfoKHR.Buffer build = VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack);
-        build.sType$Default().type(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR)
+        build.sType$Default().type(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR) // 构建BLAS
                 .flags(buildFlags(allowUpdate))
-                .mode(VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR).geometryCount(1).pGeometries(geom);
+                .mode(VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR).geometryCount(1).pGeometries(geom); // 从头构建
         VkAccelerationStructureBuildSizesInfoKHR sizes = VkAccelerationStructureBuildSizesInfoKHR.calloc(stack).sType$Default();
         vkGetAccelerationStructureBuildSizesKHR(vk, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                 build.get(0), stack.ints(indexCount / 3), sizes);
@@ -721,8 +721,8 @@ public final class RtAccel {
     private static int buildFlags(boolean allowUpdate) {
         // ALLOW_DATA_ACCESS lets the closest-hit read vertex positions from the BLAS via
         // gl_HitTriangleVertexPositionsEXT (VK_KHR_ray_tracing_position_fetch) for the normal-map TBN.
-        // Applied to every BLAS (terrain/entity) AND the refit path, so the build/UPDATE flags stay
-        // identical (a refit invariant) — this is the single shared flag source.
+        // Applied to every BLAS (terrain/entity) AND the refit（原地更新加速结构，不重建） path, so the build/UPDATE flags stay
+        // identical (a refit invariant) — this is the single shared flag source. （作者把标志生成逻辑集中在一个 buildFlags 方法里，所有调用点都用它，保证一致性）
         return VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
                 | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_BIT_KHR
                 | (allowUpdate ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0);

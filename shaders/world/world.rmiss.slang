@@ -162,7 +162,7 @@ float3 stars(float3 dir, float starBrightness, float VdotS, float4 celestial) {
     float bright = 0.55 + 0.45 * hash13(id + 71.0);
     star *= bright * min(dir.y * 3.0, 1.0) * max(0.0, 1.0 - pow(abs(VdotS) * 1.002, 100.0));
 
-    float3 starCol = lerp(float3(0.78, 0.60, 0.42), float3(0.50, 0.62, 0.95), hash13(id + 137.0));
+    half3 starCol = lerp(half3(float3(0.78, 0.60, 0.42)), half3(float3(0.50, 0.62, 0.95)), half(hash13(id + 137.0)));
     return 0.2 * star * starCol * starBrightness;
 }
 
@@ -189,7 +189,7 @@ void main(inout Payload payload) {
     float lum = dot(col, float3(0.2126, 0.7152, 0.0722));
     col = max(lerp(float3(lum, lum, lum), col, SKY_SATURATION), float3(0.0, 0.0, 0.0));
     float up = clamp(dir.y, 0.0, 1.0);
-    float3 nightAmbient = lerp(NIGHT_HORIZON, NIGHT_ZENITH, up);
+    half3 nightAmbient = lerp(half3(NIGHT_HORIZON), half3(NIGHT_ZENITH), half(up));
     col += nightAmbient * (1.0 - day);
     col *= downFade;
 
@@ -200,11 +200,11 @@ void main(inout Payload payload) {
         addCelestialDisc(col, dir, normalize(worldPush.moonDir.xyz), MOON_DISC_HALF_ANGLE, MOON_DISC_RADIANCE, pow2(1.0 - day));
     }
 
-    payload.albedo = max(col, float3(0.0, 0.0, 0.0));
+    payload.albedo = half3(max(col, float3(0.0, 0.0, 0.0)));
     payload.hitT = -1.0;
-    payload.normal = float3(0.0, 0.0, 0.0);
+    payload.normal = half3(float3(0.0, 0.0, 0.0));
     payload.motionPrev = float3(0.0, 0.0, 0.0);
-    payload.f0 = float3(0.0, 0.0, 0.0);
+    payload.f0 = half3(float3(0.0, 0.0, 0.0));
     payload.flags = 0u;
     payload.roughMetal = packHalf2(float2(1.0, 0.0));
     payload.emissionSss = packHalf2(float2(0.0, 0.0));

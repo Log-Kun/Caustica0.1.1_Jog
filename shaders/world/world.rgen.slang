@@ -283,6 +283,7 @@ float3 sampleGGXVNDF(float3 normal, float3 ve, float rough, inout uint s) {
     return normalize(Ne.x * t + Ne.y * b + Ne.z * normal);
 }
 
+
 // 光追 SBT 和剔除标志。
 #define CULL_SECONDARY 0x01u
 #define CULL_PRIMARY 0x02u
@@ -291,32 +292,6 @@ float3 sampleGGXVNDF(float3 normal, float3 ve, float rough, inout uint s) {
 #define SBT_SHADOW TERRAIN_BUCKETS
 #define SBT_STRIDE_BUCKET 1u
 
-// 光追主函数：重排线程后调用 closest-hit/miss shader。
-void traceRadianceReordered(uint cullMask, float3 ro, float tmin, float3 rd) {
-/*
-topLevelAS          场景加速结构，里面有所有可光追的物体
-RAY_FLAG_NONE       普通 radiance ray，不跳过 closest-hit
-cullMask            控制这条 ray 能看见哪些实例
-SBT_RADIANCE        用 radiance 那组 shader binding table
-SBT_STRIDE_BUCKET   SBT 里不同材质 bucket 的跨度
-0u                  miss shader index
-makeRay(...)        这条 ray 的 origin/tmin/direction
-payload             要传给 hit/miss shader 的数据包
-*/
-    HitObject hObj = HitObject::TraceRay(topLevelAS, RAY_FLAG_NONE, cullMask, SBT_RADIANCE, SBT_STRIDE_BUCKET, 0u, makeRay(ro, tmin, rd), payload);
-    
-    ReorderThread(hObj); // 线程重排，仅优化性能用（SER优化）
-
-    HitObject::Invoke(topLevelAS, hObj, payload);
-/*
-如果 hObj 是命中几何：
-    调用 world.rchit.slang 的 closesthit
-    rchit 写 payload.albedo / normal / hitT / roughness ...
-如果 hObj 是 miss：
-    调用 world.rmiss.slang 的 miss
-    miss 写 payload.albedo = 天空颜色，payload.hitT = -1
-*/
-}
 
 RayDesc makeRay(float3 origin, float tmin, float3 dir) {
     RayDesc r;
@@ -354,6 +329,33 @@ float3 visibility_L(float3 origin, float3 dir, float rayL) {
             CULL_SECONDARY, SBT_SHADOW, SBT_STRIDE_BUCKET, 0u,
             makeRay_L(origin, RAY_TMIN, dir, rayL), shadowVis);
     return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
+}
+
+// 光追主函数：重排线程后调用 closest-hit/miss shader。
+void traceRadianceReordered(uint cullMask, float3 ro, float tmin, float3 rd) {
+/*
+topLevelAS          场景加速结构，里面有所有可光追的物体
+RAY_FLAG_NONE       普通 radiance ray，不跳过 closest-hit
+cullMask            控制这条 ray 能看见哪些实例
+SBT_RADIANCE        用 radiance 那组 shader binding table
+SBT_STRIDE_BUCKET   SBT 里不同材质 bucket 的跨度
+0u                  miss shader index
+makeRay(...)        这条 ray 的 origin/tmin/direction
+payload             要传给 hit/miss shader 的数据包
+*/
+    HitObject hObj = HitObject::TraceRay(topLevelAS, RAY_FLAG_NONE, cullMask, SBT_RADIANCE, SBT_STRIDE_BUCKET, 0u, makeRay(ro, tmin, rd), payload); 
+    
+    ReorderThread(hObj); // 线程重排，仅优化性能用（SER优化）
+
+    HitObject::Invoke(topLevelAS, hObj, payload);
+/*
+如果 hObj 是命中几何：
+    调用 world.rchit.slang 的 closesthit
+    rchit 写 payload.albedo / normal / hitT / roughness ...
+如果 hObj 是 miss：
+    调用 world.rmiss.slang 的 miss
+    miss 写 payload.albedo = 天空颜色，payload.hitT = -1
+*/
 }
 
 float3 waterCelestialHighlight(float3 hitPos, float3 normal, float3 viewDir, float3 bodyDir, float3 radiance, float F, float strength, float sharpness, float bias, float weight) {

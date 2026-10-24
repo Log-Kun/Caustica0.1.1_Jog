@@ -13,7 +13,6 @@ import dev.comfyfluffy.caustica.client.CausticaJitter;
 import dev.comfyfluffy.caustica.mixin.CommandEncoderAccessor;
 import dev.comfyfluffy.caustica.rt.gen.PushConstantsData;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData;
-import dev.comfyfluffy.caustica.rt.gen.WorldPushData.BreakEntry;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float2;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float3;
 import dev.comfyfluffy.caustica.rt.gen.WorldPushData.Float4;
@@ -1069,7 +1068,7 @@ public final class RtComposite {
             // not a block-atlas sprite 鈥?see ModelBakery.BREAKING_LOCATIONS/DESTROY_TYPES),
             // so any newly
             // resolved slot rides along with the uploadPending() call right below.
-            BreakEntry[] breaking = breakingEntries(terrain);
+            Int4[] breaking = breakingEntries(terrain);
             SkyPush sky = skyPush();
             new WorldPushData( // 间接推送部分
                     frameInvViewProj,
@@ -1269,8 +1268,8 @@ public final class RtComposite {
      * so it rides the same bindless entity-texture array as entity textures
      * ({@link RtEntityTextures}).
      */
-    private BreakEntry[] breakingEntries(RtTerrain terrain) {
-        BreakEntry[] result = new BreakEntry[WorldPushData.BREAKING_CAPACITY];
+    private Int4[] breakingEntries(RtTerrain terrain) {
+        Int4[] result = new Int4[WorldPushData.BREAKING_CAPACITY];
         int count = 0;
         var level = Minecraft.getInstance().level;
         if (level != null) {
@@ -1285,11 +1284,11 @@ public final class RtComposite {
                 int stage = Mth.clamp(progresses.last().getProgress(), 0, 9);
                 BlockPos pos = BlockPos.of(entry.getLongKey());
                 int slot = RtEntityTextures.INSTANCE.slotFor(ModelBakery.DESTROY_TYPES.get(stage));
-                result[count++] = new BreakEntry(new Int4(
+                result[count++] = new Int4(
                         pos.getX() - terrain.blockX,
                         pos.getY() - terrain.blockY,
                         pos.getZ() - terrain.blockZ,
-                        slot));
+                        slot);
             }
         }
         return count == result.length ? result : java.util.Arrays.copyOf(result, count);

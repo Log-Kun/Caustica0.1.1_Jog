@@ -225,33 +225,6 @@
                                                 "scalarType": "uint32"
                                             },
                                             "binding": {"kind": "uniform", "offset": 384, "size": 4, "elementStride": 0}
-                                        },
-                                        {
-                                            "name": "breaking",
-                                            "type": {
-                                                "kind": "array",
-                                                "elementCount": 8,
-                                                "elementType": {
-                                                    "kind": "struct",
-                                                    "name": "BreakEntry",
-                                                    "fields": [
-                                                        {
-                                                            "name": "posSlot",
-                                                            "type": {
-                                                                "kind": "vector",
-                                                                "elementCount": 4,
-                                                                "elementType": {
-                                                                    "kind": "scalar",
-                                                                    "scalarType": "int32"
-                                                                }
-                                                            },
-                                                            "binding": {"kind": "uniform", "offset": 0, "size": 16, "elementStride": 4}
-                                                        }
-                                                    ]
-                                                },
-                                                "uniformStride": 16
-                                            },
-                                            "binding": {"kind": "uniform", "offset": 400, "size": 128, "elementStride": 16}
                                         }
                                     ]
                                 },
