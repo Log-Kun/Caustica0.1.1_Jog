@@ -550,11 +550,9 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     #define VOLUME_PHASE_G 0.72
                     #define VOLUME_SCATTER_ALBEDO_TINT float3(0.92, 0.97, 1.)*0.65
                     #define VOLUME_SKY_LAYER_HEIGHT 24. // 天空最多步进次数 这部分主要是积分
-                    #define VOLUME_LIGHT_DISTANCE 32.
+                    #define VOLUME_LIGHT_DISTANCE 64.
                     // 沿视线可积分的最大距离：命中面处截断，未命中时用天空层高度限制。
-                    float segmentLength = payload.hitT >= 0.
-                        ? min(payload.hitT, 64.)
-                        : (rd.y > 0. ? min(64., VOLUME_SKY_LAYER_HEIGHT / max(rd.y, 0.05)) : 64.);
+                    float segmentLength = payload.hitT >= 0. ?  min(payload.hitT, VOLUME_LIGHT_DISTANCE) : VOLUME_LIGHT_DISTANCE;
 
                     float viewTransmittance = 1.;
 
@@ -795,7 +793,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             float ndl_INVPI = abs(signedNdl) * INV_PI;
             if (ndl_INVPI > 0.) {
                 float3 Strength = ndl_INVPI * throughput * albedo * worldPush.lightRadiance.xyz;
-                if (any(Strength > float3(0.01))) {
+                if (any(Strength > float3(0.02))) {
                     #define shadowOrigin hitPos + (signedNdl >= 0. ? normal : -normal) * SURF_BIAS
                     diffuse += Strength * visibility(shadowOrigin, lightDir);
                 }
@@ -942,7 +940,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     }
 
                     float3 Strength = ndl * throughput * PointLightStrength * brdf * PointLight.color;
-                    if (any(Strength > float3(0.01))) {
+                    if (any(Strength > float3(0.02))) {
                         diffuse += visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0)) * Strength;
                     }
                 }
@@ -959,7 +957,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 if(any(HandLightColor > float3(0.001))) {
                     float3 brdf = diffAlb * INV_PI;
                     float ndl = dot(normal, HeadLightDir);
-                    if (pbr && ndl > 0.) {
+                    if (pbr && ndl > 0.001) {
                         float3 h = normalize(HeadLightDir + v);
                         float ndh = max(0., dot(normal, h));
                         float vdh = max(0., dot(v, h));
@@ -967,8 +965,8 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                         float G = ggxG1(ndv, rough) * ggxG1(ndl, rough);
                         float3 F = fresnelSchlick(vdh, F0);
                         brdf += (D * G) * F / (4. * ndv * ndl);
+                        diffuse += ndl * brdf * HandLightColor;
                     }
-                    diffuse += ndl * brdf * HandLightColor;
                 }
             }
 
@@ -1007,7 +1005,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
             float3 Strength = throughput * brdf * worldPush.lightRadiance.xyz * ndl;
             
-            if(any(Strength > float3(0.01))) {
+            if(any(Strength > float3(0.02))) {
                 float3 vis = visibility(p, lightDir);
                 if (inWater && waterWaves && shadowVis.a > 0.01) {
                     vis *= waterCaustic(p + lightDir * shadowVis.a, lightDir, shadowVis.a);
@@ -1022,7 +1020,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             float backNdl_sss = dot(-normal, lightDir) * sss * SSS_STRENGTH;
             if (backNdl_sss > 0.01) {
                 float3 Strength = backNdl_sss * hg(dot(lightDir, rd), SSS_G) * throughput * diffAlb * worldPush.lightRadiance.xyz;
-                if (any(Strength > float3(0.01))) {
+                if (any(Strength > float3(0.02))) {
                     float3 visB = visibility(hitPos - normal * SURF_BIAS, lightDir);
                     if (inWater && waterWaves && shadowVis.a > 0.01) {
                         visB *= waterCaustic(hitPos + lightDir * shadowVis.a, lightDir, shadowVis.a);
