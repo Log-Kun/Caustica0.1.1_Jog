@@ -91,17 +91,18 @@ static float3 gv_motionObjDisp;
 
 
 #define CLOUD_H_MAX 500.
-#define CLOUD_H_MIN 256.
+#define CLOUD_H_MIN 250.
 
+// 云密度
 float cloudDensity(float3 p, float Rain) {
     p.xz *= 0.0004;
     p.y = (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
-    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 20. - 10.3 + Rain * 0.4, 0., 1.) * smoothstep(0., 0.1, p.y) * smoothstep(1., 0.9, p.y);
+    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 20. - 10.1 + Rain * 0.4, 0., 1.) * smoothstep(0., 0.1, p.y) * smoothstep(1., 0.9, p.y);
 }
 
 // 生成水面法线
 float3 get_water_normal(float2 worldXZ) {
-    float2 uv_xz = worldXZ / 32.0;
+    float2 uv_xz = worldXZ / 48.;
     float uv_t = fmod(pc.Time, 24.0) / 24.0;
     float2 rg = WaternoiseTex3D.SampleLevel(Sampler3D, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
     return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
@@ -637,7 +638,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                         float cloudStepLen = (t1 - t0) / float(CLOUD_VIEW_STEPS);
                         // 内层：从每个视点沿光线方向步进，步长按云盒厚度均分。
                         float cloudLightStepLen = (CLOUD_H_MAX - CLOUD_H_MIN) / float(CLOUD_LIGHT_STEPS);
-                        float jitter = rndf(seed) * 2.;
+                        float jitter = rndf(seed);
 
                         for (int s = 0; s < CLOUD_VIEW_STEPS; s++) {
                             float t = t0 + (float(s) + jitter) * cloudStepLen;

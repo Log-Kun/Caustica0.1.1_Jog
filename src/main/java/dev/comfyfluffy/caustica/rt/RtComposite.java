@@ -723,7 +723,7 @@ public final class RtComposite {
 
         worldPipeline.setSampler3D(Rt3DTextures.getSampler3D(ctx), 9); // 绑定到9号
         worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/cloud_noise_3d_256.png", VK10.VK_FORMAT_R8_UNORM), 10); // 绑定到10号
-        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/water_wave_3d_128.png", VK10.VK_FORMAT_R8G8_UNORM), 11); // 绑定到11号
+        worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/water_wave_3d_256.png", VK10.VK_FORMAT_R8G8_UNORM), 11); // 绑定到11号
         worldPipeline.setTexture3D(Rt3DTextures.getTexture3D(ctx, "textures/ripple_128.png", VK10.VK_FORMAT_R8G8_UNORM), 12); // 绑定到12号
     }
 
