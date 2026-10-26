@@ -90,14 +90,13 @@ static float3 gv_motionObjDisp;
 #define RAY_CONE_GLOSSY_SPREAD_SCALE 0.35
 
 
-#define CLOUD_H_MAX 350.
-#define CLOUD_H_MIN 250.
+#define CLOUD_H_MAX 500.
+#define CLOUD_H_MIN 256.
 
-// 体积云密度
 float cloudDensity(float3 p, float Rain) {
-    p.xz *= 0.0014;
-    p.y = 0.2 * (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
-    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 3. - 1.5 + Rain * 0.3, 0., 1.);
+    p.xz *= 0.0004;
+    p.y = (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
+    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 20. - 10.3 + Rain * 0.4, 0., 1.) * smoothstep(0., 0.1, p.y) * smoothstep(1., 0.9, p.y);
 }
 
 // 生成水面法线
@@ -604,8 +603,8 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 { // 云层部分：标准双层步进，外层沿视线方向、内层沿光线方向积分光学深度。
                     #define CLOUD_VIEW_STEPS 24
                     #define CLOUD_LIGHT_STEPS 6
-                    float cloudFadeStart = 1000.;
-                    float cloudMaxDistance = 2000.;
+                    float cloudFadeStart = 1200.;
+                    float cloudMaxDistance = 2200.;
                     float rayLimit = payload.hitT >= 0. ? min(payload.hitT, cloudMaxDistance) : cloudMaxDistance;
 
                     // 云层仅在 Y 方向有界（XZ 无限延伸），用标准 Y-slab 统一求交得到光段 [t0, t1]。
@@ -638,7 +637,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                         float cloudStepLen = (t1 - t0) / float(CLOUD_VIEW_STEPS);
                         // 内层：从每个视点沿光线方向步进，步长按云盒厚度均分。
                         float cloudLightStepLen = (CLOUD_H_MAX - CLOUD_H_MIN) / float(CLOUD_LIGHT_STEPS);
-                        float jitter = rndf(seed);
+                        float jitter = rndf(seed) * 2.;
 
                         for (int s = 0; s < CLOUD_VIEW_STEPS; s++) {
                             float t = t0 + (float(s) + jitter) * cloudStepLen;
