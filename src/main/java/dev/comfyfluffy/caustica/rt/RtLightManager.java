@@ -96,15 +96,16 @@ public class RtLightManager {
     //获取坐标list
 
     public List<PointLight> scanNearbyLights(Level level, BlockPos centre) {
-        frameCounter = (frameCounter + 1) & 31; // 自增，始终在 0~31 循环。& 31 等价于 % 32 但是更快
+        frameCounter = (frameCounter + 1) & 15; // 自增，始终在 0~15 循环。& 15 等价于 % 16 但是更快
         
 
-        int nowh = frameCounter - 16;
+        int nowh = frameCounter * 2 - 16;
         lights.removeIf(element -> element.y == centre.getY() + nowh // 移除这一层的信息，以进行更新
+                || element.y == centre.getY() + nowh + 1
                 || element.y < centre.getY() - 16 // 后面防止玩家上下平移时列表爆炸
                 || element.y > centre.getY() + 15);
 
-        for (BlockPos pos : BlockPos.betweenClosed(centre.offset(64, nowh, 64), centre.offset(-64, nowh, -64))) { // 范围内扫描 冒号遍历是语法糖
+        for (BlockPos pos : BlockPos.betweenClosed(centre.offset(64, nowh, 64), centre.offset(-64, nowh + 1, -64))) { // 范围内扫描 冒号遍历是语法糖
             Block block_info = level.getBlockState(pos).getBlock();
             float[] color = LIGHT_COLORS.getOrDefault(block_info, new float[] { -1.0f, -1.0f, -1.0f }); // 可以用get，但返回null就炸了
             if (color[0] >= 0) {

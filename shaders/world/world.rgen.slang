@@ -103,7 +103,7 @@ float cloudDensity(float3 p, float Rain) {
 // 生成水面法线
 float3 get_water_normal(float2 worldXZ) {
     float2 uv_xz = worldXZ / 32.0;
-    float uv_t = fmod(worldPush.Time, 24.0) / 24.0;
+    float uv_t = fmod(pc.Time, 24.0) / 24.0;
     float2 rg = WaternoiseTex3D.SampleLevel(Sampler3D, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
     return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
 }
@@ -570,12 +570,12 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                             #define volumeSunPhase hg(dot(volumeLightDir, rd), VOLUME_PHASE_G)
                             #define volumeSunTransmittance exp(-sigmaT * VOLUME_LIGHT_DISTANCE)
                             float3 Strength = viewTransmittance * volumeSunPhase * volumeSunTransmittance * throughput * segmentScatter * worldPush.lightRadiance.xyz;
-                            if (any(Strength > float3(0.02))) {
+                            if (any(Strength > float3(0.01))) {
                                 diffuse += Strength * visibility(volumePos, volumeLightDir);
                             }
                         }
 
-                        { //点光源体积光：遍历光源累加 in-scattering 贡献。与日月一样是相位函数散射，但透射率用真实距离（点光源近，固定距离会失真）。
+                        { //面光源体积光：遍历光源累加 in-scattering 贡献。与日月一样是相位函数散射。
                             float3 lightooff =  0.5 - volumePos + sampleCubeSurface(seed)*0.7;
                             for (int li = 0; li < pc.lightCount; li++) {
                                 PointLight pointLight = loadPointLight(li);
@@ -588,7 +588,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                                 #define volumePointPhase hg(dot(pointLightDir, rd), VOLUME_PHASE_G)
                                 #define volumePointTransmittance exp(-sigmaT * pointDist)
                                 float3 Strength =  pointStrength * volumePointPhase * volumePointTransmittance * throughput * segmentScatter * pointLight.color;
-                                if (any(Strength > float3(0.02))) {
+                                if (any(Strength > float3(0.001))) {
                                     diffuse += Strength * visibility_L(volumePos, pointLightDir, max(pointDist - 0.49, 0.));
                                 }
                             }
@@ -817,7 +817,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             if (waterWaves) {
                 float2 waveXZ = hitPos.xz + float2(pc.anchororigin.xz) + (abs(normal.y) < 0.5 ? hitPos.y : 0.);
                 normal = get_water_normal(waveXZ) * (normal.y < 0. ? -1. : 1.);
-                    if(Rain > 0.001 && normal.y > 0.001 && bounce == 0) {
+                if(Rain > 0.001 && normal.y > 0.001 && bounce == 0) {
                     // 从命中点稍微偏移，避免自交
                     RayDesc r;
                     r.Origin = hitPos + normal * 0.01;
@@ -830,7 +830,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     q.Proceed();
                     
                     float wet = Rain * float(q.CommittedStatus() != COMMITTED_TRIANGLE_HIT);
-                    float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, worldPush.Time * 0.6), 0.0) * 2. - 1.;
+                    float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, pc.Time * 0.6), 0.0) * 2. - 1.;
                     normal = normalize(lerp(normal, float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y), wet * 0.3));
                 }
             }
@@ -905,7 +905,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             rough = lerp(rough, 0.05, wet);
             metal = max(metal, 0.8 * wet);
             F0 = lerp(F0, albedo * 0.5, wet);
-            float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, worldPush.Time * 0.6), 0.0) * 2. - 1.;
+            float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, pc.Time * 0.6), 0.0) * 2. - 1.;
             normal = lerp(normal, normalize(float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y)), wet);
         }
         float3 diffAlb = albedo * (1. - metal);
@@ -914,7 +914,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
         if (bounce == 0) {
 
-            { // 体积面光源
+            { // 面光源
                 float3 lightooff = 0.5 - hitPos + sampleCubeSurface(seed)*0.7; // 在光源中心生成长宽高0.7的方块，均匀随机采样其表面，兼顾火把灯笼海晶灯
                 for (int li = 0; li < pc.lightCount; li++) {
                     PointLight PointLight = loadPointLight(li);
@@ -940,14 +940,14 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     }
 
                     float3 Strength = ndl * throughput * PointLightStrength * brdf * PointLight.color;
-                    if (any(Strength > float3(0.02))) {
+                    if (any(Strength > float3(0.001))) {
                         diffuse += visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0)) * Strength;
                     }
                 }
             }
 
             
-            { // 手持光源
+            { // 手持光源直接光
                 HeadLight HeadLightInfo = loadHeadLight();
                 float3 HeadLightDir = HeadLightInfo.position - hitPos;
                 float HeadLightLength = length(HeadLightDir);

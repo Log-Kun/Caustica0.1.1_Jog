@@ -358,13 +358,13 @@ void main(inout Payload payload, in BuiltInTriangleIntersectionAttributes attr) 
     payload.motionPrev = float3(0.0, 0.0, 0.0); // 静态地形：仅相机运动矢量
     uint material = materialHeader.model == MATERIAL_WATER ? MATERIAL_WATER : MATERIAL_OPAQUE;
     // normal.w 同时携带方块光照和非实心标记，用于发光与薄表面透射。
-    float ew = pr.normal.w;
+    half ew = half(pr.normal.w);
     bool nonSolid = ew >= 1.5;
-    float emission = nonSolid ? ew - 2.0 : ew; // 启发式发光来源（方块光照等级）
+    half emission = nonSolid ? ew - half(2.0) : ew; // 启发式发光来源（方块光照等级）
     Surface surface = evaluateMaterial(materialHeader, uv, blockLod, payload.albedo, normal,
             tp0, tp1, tp2, uv0, uv1, uv2, vdir,
-            half(emission), nonSolid);
-    normal = half3(surface.normal);
+            emission, nonSolid);
+    normal = surface.normal;
     // 非水地形应用破坏覆盖层；水体不可破坏，直接跳过。
     if (material != MATERIAL_WATER) {
         payload.albedo = applyBreaking(payload.albedo, rayCone, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), normal);

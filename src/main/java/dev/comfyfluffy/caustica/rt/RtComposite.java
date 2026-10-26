@@ -1044,7 +1044,6 @@ public final class RtComposite {
                 wtb = (wc & 0xFF) / 255f;
             }
             Float3 waterBiomeColor = new Float3(wtr, wtg, wtb);
-            float Time = (float) (System.nanoTime() / 1.0e9 % 3600.0);
 
             // Rebuild the TLAS this frame from static section instances merged with dynamic
             // entity
@@ -1082,7 +1081,6 @@ public final class RtComposite {
                     sky.lightRadiance(),
                     sky.celestial(),
                     waterBiomeColor,
-                    Time,
                     mvCurProjView,
                     breaking.length,
                     breaking).write(push);
@@ -1166,9 +1164,9 @@ public final class RtComposite {
                     (int) debugView,
                     spp(),
                     flags,
-                    Rain,
-                    new PushConstantsData.Float3((float) (camX - terrain.blockX), (float) (camY - terrain.blockY),
-                            (float) (camZ - terrain.blockZ)),
+                    (float) level.getRainLevel(10), // Rain
+                    (float) (System.nanoTime() / 1.0e9 % 3600.0), // Time
+                    new PushConstantsData.Float3((float) (camX - terrain.blockX), (float) (camY - terrain.blockY), (float) (camZ - terrain.blockZ)),
                     new PushConstantsData.Int3(terrain.blockX, terrain.blockY, terrain.blockZ)).write(pushConstants);
 
             try (RtDebugLabels.Scope ignored = RtDebugLabels.scope(ctx, cmd, "world trace");

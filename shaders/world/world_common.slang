@@ -31,6 +31,7 @@ public struct PushConstants {
     public uint       spp;
     public uint       flags;               // bit0 相机浸入水中，bit1 PBR BRDF，bit4 水面波浪
     public float      Rain;
+    public float      Time;
     public float3     anchorpos;           // 以rebase后的锚点为原点的坐标系，类似chunkpos
     public int3       anchororigin;        // rebase后的锚点坐标，因为后面光追部分都是基于anchorpos算，需要这个量还原世界坐标
 };
@@ -49,7 +50,6 @@ public struct WorldPush {
     public float4     lightRadiance;       // xyz HDR light radiance, w star brightness；xyz HDR 光辐射，w 星体亮度
     public float4     celestial;           // xyz celestial rotation axis, w star angle (rad)；xyz 天体旋转轴，w 星体角度（弧度）      
     public float3     waterBiomeColor;     // 生物群系水体颜色
-    public float      Time;
     public float4x4   curViewProj;         // forward camera-relative view-projection；前向相机相对视图投影矩阵
     public uint       breakCount;
     public int4       breaking[8];         // Java capacity and breakCount serialization are generated from this；Java 容量和 breakCount 序列化根据此数组生成
