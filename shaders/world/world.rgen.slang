@@ -65,7 +65,7 @@ static float3 gv_motionObjDisp;
 #define PI 3.14159265359
 #define INV_PI 0.31830988618
 #define SURF_BIAS 0.005
-#define RAY_TMIN 0.
+#define RAY_TMIN 0.0002
 
 #define SKY_SPEC_ALBEDO float3(0.5, 0.5, 0.5)
 #define SKY_DIFF_ALBEDO float3(0.5, 0.5, 0.5)
@@ -97,15 +97,23 @@ static float3 gv_motionObjDisp;
 float cloudDensity(float3 p, float Rain) {
     p.xz *= 0.0004;
     p.y = (p.y - CLOUD_H_MIN) / (CLOUD_H_MAX - CLOUD_H_MIN);
-    return clamp(CloudnoiseTex3D.SampleLevel(Sampler3D, p, 0.0) * 20. - 10.1 + Rain * 0.4, 0., 1.) * smoothstep(0., 0.1, p.y) * smoothstep(1., 0.9, p.y);
+    float T = pc.Time;
+    return clamp((
+                CloudnoiseTex3D.SampleLevel(Sampler3D, float3(p.x + T * 0.0035, p.y + T * 0.02, p.z + T * 0.0035), 0.0) +
+                CloudnoiseTex3D.SampleLevel(Sampler3D, float3(p.x - T * 0.002, p.y - T * 0.01, p.z - T * 0.002), 0.0)
+                ) * 10. - 10.1 + Rain * 0.4, 0., 1.) * smoothstep(0., 0.1, p.y) * smoothstep(1., 0.9, p.y);
 }
 
-// 生成水面法线
+// 获取水面法线
 float3 get_water_normal(float2 worldXZ) {
-    float2 uv_xz = worldXZ / 48.;
-    float uv_t = fmod(pc.Time, 24.0) / 24.0;
-    float2 rg = WaternoiseTex3D.SampleLevel(Sampler3D, float3(uv_xz, uv_t), 0.0) * 2. - 1.;
-    return float3(rg.x, sqrt(max(0.0, 1.0 - rg.x*rg.x - rg.y*rg.y)), rg.y);
+    float2 watn = WaternoiseTex3D.SampleLevel(Sampler3D, float3(worldXZ * 0.02, pc.Time * 0.05), 0.0) * 2. - 1.;
+    return float3(watn.x, sqrt(1. - watn.x * watn.x - watn.y * watn.y), watn.y);
+}
+
+// 获取涟漪法线
+float3 get_ripple_normal(float2 worldXZ){
+    float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(worldXZ * 0.4, pc.Time * 0.6), 0.0) * 2. - 1.;
+    return float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y);
 }
 
 // 根据水体颜色生成逐通道消光：深水通过衰减自然偏蓝/偏绿。
@@ -293,46 +301,27 @@ float3 sampleGGXVNDF(float3 normal, float3 ve, float rough, inout uint s) {
 #define SBT_STRIDE_BUCKET 1u
 
 
-RayDesc makeRay(float3 origin, float tmin, float3 dir) {
+RayDesc makeRay(float3 origin, float3 dir, float rayL) {
     RayDesc r;
     r.Origin = origin;
-    r.TMin = tmin;
+    r.TMin = RAY_TMIN;
     r.Direction = dir;
-    r.TMax = 256.; // 阴影追踪距离限制256格
-    return r;
-}
-
-RayDesc makeRay_L(float3 origin, float tmin, float3 dir, float rayL) {
-    RayDesc r;
-    r.Origin = origin;
-    r.TMin = tmin;
-    r.Direction = dir;
-    r.TMax = rayL; // 阴影追踪距离限制
+    r.TMax = rayL;
     return r;
 }
 
 // 可见性查询：只跑 any-hit/透射逻辑，返回阴影透过率。
-float3 visibility(float3 origin, float3 dir) {
+float3 visibility(float3 origin, float3 dir, float rayL) {
     shadowVis = float4(1., 1., 1., -1.);
     HitObject hObj = HitObject::TraceRay(topLevelAS,
             RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
             CULL_SECONDARY, SBT_SHADOW, SBT_STRIDE_BUCKET, 0u,
-            makeRay(origin, RAY_TMIN, dir), shadowVis);
-    return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
-}
-
-// 可见性查询：只跑 any-hit/透射逻辑，返回阴影透过率。
-float3 visibility_L(float3 origin, float3 dir, float rayL) {
-    shadowVis = float4(1., 1., 1., -1.);
-    HitObject hObj = HitObject::TraceRay(topLevelAS,
-            RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
-            CULL_SECONDARY, SBT_SHADOW, SBT_STRIDE_BUCKET, 0u,
-            makeRay_L(origin, RAY_TMIN, dir, rayL), shadowVis);
+            makeRay(origin, dir, rayL), shadowVis);
     return hObj.IsMiss() ? shadowVis.rgb : float3(0.);
 }
 
 // 光追主函数：重排线程后调用 closest-hit/miss shader。
-void traceRadianceReordered(uint cullMask, float3 ro, float tmin, float3 rd) {
+void traceRadianceReordered(uint cullMask, float3 ro, float3 rd) {
 /*
 topLevelAS          场景加速结构，里面有所有可光追的物体
 RAY_FLAG_NONE       普通 radiance ray，不跳过 closest-hit
@@ -343,7 +332,7 @@ SBT_STRIDE_BUCKET   SBT 里不同材质 bucket 的跨度
 makeRay(...)        这条 ray 的 origin/tmin/direction
 payload             要传给 hit/miss shader 的数据包
 */
-    HitObject hObj = HitObject::TraceRay(topLevelAS, RAY_FLAG_NONE, cullMask, SBT_RADIANCE, SBT_STRIDE_BUCKET, 0u, makeRay(ro, tmin, rd), payload); 
+    HitObject hObj = HitObject::TraceRay(topLevelAS, RAY_FLAG_NONE, cullMask, SBT_RADIANCE, SBT_STRIDE_BUCKET, 0u, makeRay(ro, rd, 256.), payload); 
     
     ReorderThread(hObj); // 线程重排，仅优化性能用（SER优化）
 
@@ -369,7 +358,7 @@ float3 waterCelestialHighlight(float3 hitPos, float3 normal, float3 viewDir, flo
     }
     radiance *= Strength * F * mask * bodyUp * weight;
     if(any(radiance > float3(0.1))) {
-        return radiance * visibility(hitPos + normal * SURF_BIAS, bodyDir);
+        return radiance * visibility(hitPos + normal * SURF_BIAS, bodyDir, 256.);
     }
     return radiance;
 }
@@ -399,7 +388,7 @@ float2 specularReflectionMotion(float3 surfacePos, float3 primaryDir, float2 cur
     PAYLOAD_SET_TRACE_STATE(false,
             max(length(surfacePos - pc.anchorpos) * primaryConeSpread, RAY_CONE_MIN_WIDTH),
             max(primaryConeSpread, RAY_CONE_MIN_SPREAD));
-    traceRadianceReordered(CULL_SECONDARY, surfacePos + normal * SURF_BIAS, RAY_TMIN, specDir);
+    traceRadianceReordered(CULL_SECONDARY, surfacePos + normal * SURF_BIAS, specDir);
 
     float3 reflectedHit;
     float3 reflectedMotionPrev;
@@ -439,7 +428,7 @@ void refractedGuideHit(float3 surfacePos, float3 incidentDir, float3 surfaceNorm
     float3 ro = surfacePos - surfaceNormal * SURF_BIAS;
     payload.hitT = -1.;
     PAYLOAD_SET_TRACE_STATE(false, rayConeWidth, rayConeSpread);
-    traceRadianceReordered(CULL_SECONDARY, ro, RAY_TMIN, refractedDir);
+    traceRadianceReordered(CULL_SECONDARY, ro, refractedDir);
     if (payload.hitT < 0.) {
         hitCamRel = (ro + refractedDir * 1.0e6) - pc.anchorpos;
         motionPrev = float3(0.);
@@ -540,7 +529,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         // 先追踪几何，后面的体积和表面分支都以这次命中距离为上限。
         payload.hitT = -1.;
         PAYLOAD_SET_TRACE_STATE(showCelestial, rayConeWidth, rayConeSpread);
-        traceRadianceReordered(bounce == 0 ? CULL_PRIMARY : CULL_SECONDARY, ro, 0., rd);
+        traceRadianceReordered(bounce == 0 ? CULL_PRIMARY : CULL_SECONDARY, ro, rd);
         if(bounce <= 1) {
             Rain = pc.Rain;
             if (!inWater){
@@ -571,7 +560,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                             #define volumeSunTransmittance exp(-sigmaT * VOLUME_LIGHT_DISTANCE)
                             float3 Strength = viewTransmittance * volumeSunPhase * volumeSunTransmittance * throughput * segmentScatter * worldPush.lightRadiance.xyz;
                             if (any(Strength > float3(0.01))) {
-                                diffuse += Strength * visibility(volumePos, volumeLightDir);
+                                diffuse += Strength * visibility(volumePos, volumeLightDir, 256.);
                             }
                         }
 
@@ -589,7 +578,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                                 #define volumePointTransmittance exp(-sigmaT * pointDist)
                                 float3 Strength =  pointStrength * volumePointPhase * volumePointTransmittance * throughput * segmentScatter * pointLight.color;
                                 if (any(Strength > float3(0.001))) {
-                                    diffuse += Strength * visibility_L(volumePos, pointLightDir, max(pointDist - 0.49, 0.));
+                                    diffuse += Strength * visibility(volumePos, pointLightDir, max(pointDist - 0.49, 0.));
                                 }
                             }
                         }
@@ -696,7 +685,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                     if (t >= waterSegment)break;
                     float stepLen = min(waterStepLen, waterSegment - t);
                     float3 p = ro + rd * (t + 0.5 * stepLen);
-                    float3 vis = visibility(p, waterLightDir);
+                    float3 vis = visibility(p, waterLightDir, 256.);
                     if (waterWaves && shadowVis.a > 0.01) {
                         vis *= waterCaustic(p + waterLightDir * shadowVis.a, waterLightDir, shadowVis.a);
                     }
@@ -795,7 +784,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 float3 Strength = ndl_INVPI * throughput * albedo * worldPush.lightRadiance.xyz;
                 if (any(Strength > float3(0.02))) {
                     #define shadowOrigin hitPos + (signedNdl >= 0. ? normal : -normal) * SURF_BIAS
-                    diffuse += Strength * visibility(shadowOrigin, lightDir);
+                    diffuse += Strength * visibility(shadowOrigin, lightDir, 256.);
                 }
             }
 
@@ -818,20 +807,8 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
                 float2 waveXZ = hitPos.xz + float2(pc.anchororigin.xz) + (abs(normal.y) < 0.5 ? hitPos.y : 0.);
                 normal = get_water_normal(waveXZ) * (normal.y < 0. ? -1. : 1.);
                 if(Rain > 0.001 && normal.y > 0.001 && bounce == 0) {
-                    // 从命中点稍微偏移，避免自交
-                    RayDesc r;
-                    r.Origin = hitPos + normal * 0.01;
-                    r.Direction = normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 ));
-                    r.TMin = 0.001;
-                    r.TMax = 128.0;   // 128 格内没遮挡就算露天
-                    
-                    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> q;
-                    q.TraceRayInline(topLevelAS, RAY_FLAG_NONE, 0xFF, r);
-                    q.Proceed();
-                    
-                    float wet = Rain * float(q.CommittedStatus() != COMMITTED_TRIANGLE_HIT);
-                    float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, pc.Time * 0.6), 0.0) * 2. - 1.;
-                    normal = normalize(lerp(normal, float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y), wet * 0.3));
+                    float wet = Rain * float(any(visibility(hitPos - normal * 0.0001, normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 )), 128.) > float3(0.999)));
+                    normal = normalize(lerp(normal, get_ripple_normal(hitPos.xz), wet * 0.4));
                 }
             }
             waterExt = waterExtinction(payload.albedo);
@@ -891,22 +868,11 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
         float metal = pbr ? clamp(PAYLOAD_METALNESS, 0., 1.) : 0.;
         float3 F0 = pbr ? payload.f0 : lerp(float3(0.04), albedo, metal);
         if(Rain > 0.001 && normal.y > 0.001 && bounce <= 1 && ! inWater) { // 雨天
-            RayDesc r;
-            r.Origin = hitPos - normal * 0.0001;
-            r.Direction = normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 ));
-            r.TMin = 0.0002;
-            r.TMax = 128.0;   // 128 格内没遮挡就算露天
-            
-            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> q;
-            q.TraceRayInline(topLevelAS, RAY_FLAG_NONE, 0xFF, r);
-            q.Proceed();
-            
-            float wet = Rain * float(q.CommittedStatus() != COMMITTED_TRIANGLE_HIT);
+            float wet = Rain * float(any(visibility(hitPos - normal * 0.0001, normalize(float3( rndf(seed) * 0.2 - 0.1, 1, rndf(seed) * 0.2 - 0.1 )), 128.) > float3(0.999)));
             rough = lerp(rough, 0.05, wet);
             metal = max(metal, 0.8 * wet);
             F0 = lerp(F0, albedo * 0.5, wet);
-            float2 ripn = RippleTex3D.SampleLevel(Sampler3D, float3(hitPos.xz * 0.4, pc.Time * 0.6), 0.0) * 2. - 1.;
-            normal = lerp(normal, normalize(float3(ripn.x, sqrt(1. - ripn.x * ripn.x - ripn.y * ripn.y), ripn.y)), wet);
+            normal = normalize(lerp(normal, get_ripple_normal(hitPos.xz), wet));
         }
         float3 diffAlb = albedo * (1. - metal);
 
@@ -941,7 +907,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
 
                     float3 Strength = ndl * throughput * PointLightStrength * brdf * PointLight.color;
                     if (any(Strength > float3(0.001))) {
-                        diffuse += visibility_L(p, PointLightDir, max(PointLightLength - 0.49, 0.0)) * Strength;
+                        diffuse += visibility(p, PointLightDir, max(PointLightLength - 0.49, 0.0)) * Strength;
                     }
                 }
             }
@@ -1006,7 +972,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             float3 Strength = throughput * brdf * worldPush.lightRadiance.xyz * ndl;
             
             if(any(Strength > float3(0.02))) {
-                float3 vis = visibility(p, lightDir);
+                float3 vis = visibility(p, lightDir, 256.);
                 if (inWater && waterWaves && shadowVis.a > 0.01) {
                     vis *= waterCaustic(p + lightDir * shadowVis.a, lightDir, shadowVis.a);
                 }
@@ -1021,7 +987,7 @@ float3 tracePath(float3 ro, float3 rd, float primaryConeSpread, inout uint seed)
             if (backNdl_sss > 0.01) {
                 float3 Strength = backNdl_sss * hg(dot(lightDir, rd), SSS_G) * throughput * diffAlb * worldPush.lightRadiance.xyz;
                 if (any(Strength > float3(0.02))) {
-                    float3 visB = visibility(hitPos - normal * SURF_BIAS, lightDir);
+                    float3 visB = visibility(hitPos - normal * SURF_BIAS, lightDir, 256.);
                     if (inWater && waterWaves && shadowVis.a > 0.01) {
                         visB *= waterCaustic(hitPos + lightDir * shadowVis.a, lightDir, shadowVis.a);
                     }
